@@ -38,10 +38,13 @@ def _sev_size(d):
 
 
 def render(out_dir, project_name, abs_root, nodes, edges, communities,
-           comm_summaries, issues, community_names=None):
+           comm_summaries, issues, community_names=None,
+           flows=None, sensitive=None):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     community_names = community_names or {}
+    flows = flows or []
+    sensitive = sensitive or []
 
     build_date = datetime.date.today().isoformat()
     build_ts = datetime.datetime.now().isoformat(timespec='seconds')
@@ -83,7 +86,7 @@ def render(out_dir, project_name, abs_root, nodes, edges, communities,
 
     # ── artifacts: JSON + MD + TXT ──
     _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
-                     comm_display, issues, hub_list, deg, rank_of)
+                     comm_display, issues, hub_list, deg, rank_of, flows, sensitive)
 
     # ── vis nodes/edges ──
     vis_nodes = _build_vis_nodes(nodes, deg, rank_of, communities, issue_by_file)
@@ -99,7 +102,7 @@ def render(out_dir, project_name, abs_root, nodes, edges, communities,
 
     html = _build_html(project_name, abs_root, build_date, build_ts,
                        vis_nodes, vis_edges, issues, stats, hub_list,
-                       comm_display, nodes, deg)
+                       comm_display, nodes, deg, flows, sensitive)
     (out_dir / 'nodo.html').write_text(html, encoding='utf-8')
     return {
         'html': str(out_dir / 'nodo.html'),
@@ -155,7 +158,10 @@ def _build_vis_nodes(nodes, deg, rank_of, communities, issue_by_file):
 
 
 def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
-                     comm_display, issues, hub_list, deg, rank_of):
+                     comm_display, issues, hub_list, deg, rank_of,
+                     flows=None, sensitive=None):
+    flows = flows or []
+    sensitive = sensitive or []
     n_err = sum(1 for x in issues if x['severity'] == 'error')
     n_warn = sum(1 for x in issues if x['severity'] == 'warn')
     n_info = sum(1 for x in issues if x['severity'] == 'info')
@@ -172,6 +178,8 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
         },
         'hubs': hub_list,
         'communities': comm_display,
+        'flows': flows,
+        'sensitive': sensitive,
         # compact file + edge tables so `--query` can answer blast-radius
         # questions without re-scanning the project.
         'files': [
@@ -200,6 +208,19 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
           '| File | Edges |', '|---|---|']
     for h in hub_list:
         md.append(f'| `{h["file"]}` | {h["edges"]} |')
+
+    if sensitive:
+        md.append('\n## Security-sensitive surfaces (review first)\n')
+        for layer in sensitive:
+            top = ', '.join(f'`{f["rel"]}`' for f in layer['files'][:5])
+            md.append(f'- **{layer["label"]}** ({layer["count"]}): {top}')
+
+    if flows:
+        md.append('\n## Entry-point flows (what each entry reaches)\n')
+        for f in flows[:12]:
+            reaches = ', '.join(f['reaches'][:8])
+            md.append(f'- `{f["entry"]}` → {f["reach_count"]} files: {reaches}')
+
     md.append('\n## Modules\n')
     md.append('| # | Name | Size |')
     md.append('|---|---|---|')

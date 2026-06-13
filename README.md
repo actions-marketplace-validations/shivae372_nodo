@@ -78,6 +78,12 @@ Everything lands in `<project>/.nodo/`:
   light). Sliders for node size / edge width / label size.
 - **Issues tab** — code smells grouped by category, each with the exact line, a
   3-line code snippet, a **Copy AI Context** button, and an IDE deep-link.
+- **Flows tab** — auto-derived from the graph: every entry point (API route,
+  page, `main`) and the files it reaches through imports. A data-flow map with
+  zero configuration.
+- **Security tab** — files auto-classified by what they touch (auth, crypto,
+  secrets, payments, database, network, user input) with the matched terms — the
+  surfaces to review first in any audit.
 - **Hubs & Modules** — your highest-blast-radius files and detected clusters.
 - **AI Context** — one-click copies: project summary, full issue backlog, or a
   scoped prompt per issue.

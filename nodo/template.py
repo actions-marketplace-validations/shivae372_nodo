@@ -41,7 +41,9 @@ def _esc(s):
 
 def build_html(project_name, abs_root, build_date, build_ts,
                vis_nodes, vis_edges, issues, stats, hub_list,
-               comm_display, nodes, deg):
+               comm_display, nodes, deg, flows=None, sensitive=None):
+    flows = flows or []
+    sensitive = sensitive or []
     nodes_json = json.dumps(vis_nodes, separators=(',', ':'))
     edges_json = json.dumps(vis_edges, separators=(',', ':'))
     issues_json = json.dumps(issues, separators=(',', ':'))
@@ -77,6 +79,10 @@ def build_html(project_name, abs_root, build_date, build_ts,
 
     # ── issue cards ──
     issue_html = _build_issue_html(issues, abs_root)
+
+    # ── flows + sensitive (auto-derived, graphify-style tabs) ──
+    flows_html = _build_flows_html(flows, abs_root)
+    sensitive_html = _build_sensitive_html(sensitive, abs_root)
 
     n_err = stats['issues']['error']
     n_warn = stats['issues']['warn']
@@ -125,6 +131,10 @@ def build_html(project_name, abs_root, build_date, build_ts,
         '%%LEGEND%%': legend,
         '%%COMM_ROWS%%': comm_rows,
         '%%ISSUE_HTML%%': issue_html,
+        '%%FLOWS_HTML%%': flows_html,
+        '%%SENSITIVE_HTML%%': sensitive_html,
+        '%%FLOW_COUNT%%': str(len(flows)),
+        '%%SENS_COUNT%%': str(sum(s['count'] for s in sensitive)),
         '%%VIS_CSS_TAG%%': vis_css_tag,
     }
     for k, v in text_repl.items():
@@ -183,6 +193,74 @@ def _build_issue_html(issues, abs_root):
                 f'<div class="iss-node" style="color:{col}">{_esc(iss.get("node",""))}</div>'
                 f'<div class="iss-detail">{_esc(iss["detail"])}</div>'
                 f'{snip}</div>')
+    return '\n'.join(parts)
+
+
+def _ide_link(abs_root, rel):
+    return f'vscode://file/{abs_root}/{rel}'
+
+
+# colour per file category (kept consistent with the graph legend)
+def _cat_colour(rel):
+    r = rel.lower()
+    if '/api/' in r or 'route' in r:        return '#3b82f6'
+    if '/components/' in r or r.endswith(('.tsx', '.vue', '.svelte')): return '#ec4899'
+    if '/lib/' in r or '/utils' in r:       return '#6366f1'
+    if '/pages/' in r or '/app/' in r:      return '#64748b'
+    return '#94a3b8'
+
+
+def _build_flows_html(flows, abs_root):
+    """Auto-derived entry-point flows: 'this endpoint/page reaches these files'."""
+    if not flows:
+        return '<p class="sub">No entry points detected (no API routes, pages, or main files found).</p>'
+    parts = []
+    for f in flows:
+        col = _cat_colour(f['entry'])
+        link = _ide_link(abs_root, f['entry'])
+        reaches = f['reaches']
+        chips = ''.join(
+            f'<a class="flow-chip" href="{_ide_link(abs_root, r)}" '
+            f'onclick="event.stopPropagation()" title="{_esc(r)}">{_esc(r.split("/")[-1])}</a>'
+            for r in reaches[:18])
+        more = f'<span class="flow-more">+{len(reaches) - 18} more</span>' if len(reaches) > 18 else ''
+        node_js = json.dumps(f['entry'].split('/')[-1])
+        parts.append(
+            f'<div class="flow-card" onclick="jumpToNode({node_js})">'
+            f'<div class="flow-head">'
+            f'<span class="flow-dot" style="background:{col}"></span>'
+            f'<a class="flow-entry" href="{link}" onclick="event.stopPropagation()">{_esc(f["entry"])}</a>'
+            f'<span class="flow-badge">reaches {f["reach_count"]}</span>'
+            f'</div>'
+            f'<div class="flow-chips">{chips}{more}</div>'
+            f'</div>')
+    return '\n'.join(parts)
+
+
+def _build_sensitive_html(sensitive, abs_root):
+    """Auto-derived security surfaces: files touching auth/crypto/secrets/etc."""
+    if not sensitive:
+        return '<p class="sub">No security-sensitive surfaces detected by pattern.</p>'
+    parts = []
+    for i, layer in enumerate(sensitive, 1):
+        rows = ''
+        for fobj in layer['files']:
+            rel = fobj['rel']
+            hits = ', '.join(_esc(h) for h in fobj['hits'][:5])
+            node_js = json.dumps(rel.split('/')[-1])
+            rows += (
+                f'<div class="sec-file-row" onclick="jumpToNode({node_js})">'
+                f'<a class="sec-file" href="{_ide_link(abs_root, rel)}" '
+                f'onclick="event.stopPropagation()">{_esc(rel)}</a>'
+                f'<span class="sec-hits">{hits}</span></div>')
+        parts.append(
+            f'<div class="sec-layer">'
+            f'<div class="sec-n">{i}</div>'
+            f'<div class="sec-body">'
+            f'<b>{_esc(layer["label"])}</b> '
+            f'<span class="sec-count">{layer["count"]} file(s)</span>'
+            f'<div class="sec-files">{rows}</div>'
+            f'</div></div>')
     return '\n'.join(parts)
 
 
@@ -296,6 +374,29 @@ kbd{display:inline-block;padding:1px 6px;font-family:var(--mono);font-size:10px;
 #ctx{position:fixed;display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;z-index:9999;min-width:170px;padding:4px 0;box-shadow:var(--shadow-md)}
 #ctx div{padding:7px 14px;font-size:12px;cursor:pointer;color:var(--text2)}
 #ctx div:hover{background:var(--accent-bg);color:var(--accent)}
+/* Flows tab */
+.flow-card{border:1px solid var(--border2);border-radius:8px;padding:11px 14px;margin-bottom:9px;cursor:pointer;transition:box-shadow .12s,border-color .12s;background:var(--bg)}
+.flow-card:hover{box-shadow:var(--shadow-md);border-color:var(--accent-light)}
+.flow-head{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.flow-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.flow-entry{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);text-decoration:none}
+.flow-entry:hover{color:var(--accent)}
+.flow-badge{margin-left:auto;font-size:10px;font-weight:600;color:var(--text3);background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:1px 8px;white-space:nowrap}
+.flow-chips{display:flex;flex-wrap:wrap;gap:4px}
+.flow-chip{font-family:var(--mono);font-size:10px;color:var(--text2);background:var(--bg2);border:1px solid var(--border2);border-radius:4px;padding:1px 6px;text-decoration:none;transition:all .1s}
+.flow-chip:hover{background:var(--accent-bg);color:var(--accent);border-color:var(--accent-light)}
+.flow-more{font-size:10px;color:var(--text4);padding:1px 6px;align-self:center}
+/* Security tab */
+.sec-layer{display:flex;gap:13px;padding:13px 0;border-bottom:1px solid var(--border2)}
+.sec-n{width:26px;height:26px;background:var(--accent);color:#fff;border-radius:50%;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+.sec-body{flex:1;min-width:0}
+.sec-body>b{font-size:13px;color:var(--text)}
+.sec-count{font-size:11px;color:var(--text3);margin-left:6px}
+.sec-files{margin-top:7px;display:flex;flex-direction:column;gap:3px}
+.sec-file-row{display:flex;align-items:baseline;gap:10px;padding:3px 7px;border-radius:5px;cursor:pointer;transition:background .1s}
+.sec-file-row:hover{background:var(--accent-bg)}
+.sec-file{font-family:var(--mono);font-size:11px;color:var(--accent);text-decoration:none;flex-shrink:0}
+.sec-hits{font-size:10px;color:var(--text4);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 """
 
 # ── JS (uses placeholders __NODES__, __EDGES__, __ISSUES__, __META__) ─────────
@@ -304,7 +405,7 @@ const nodesData = __NODES__;
 const edgesData = __EDGES__;
 const ISSUES    = __ISSUES__;
 const META      = __META__;
-const TAB_ORDER = ['graph','issues','api','aicontext'];
+const TAB_ORDER = ['graph','issues','flows','security','api','aicontext'];
 
 function switchTab(name, el){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -313,7 +414,7 @@ function switchTab(name, el){
   const sb=document.getElementById('sidebar'), gp=document.getElementById('graph-pane');
   sb.style.display = name==='graph'?'flex':'none';
   gp.style.display = name==='graph'?'flex':'none';
-  ['issues','api','aicontext'].forEach(id=>{const p=document.getElementById(id+'-pane'); if(p)p.style.display=(id===name)?'block':'none';});
+  ['issues','flows','security','api','aicontext'].forEach(id=>{const p=document.getElementById(id+'-pane'); if(p)p.style.display=(id===name)?'block':'none';});
   if(name==='graph' && typeof network!=='undefined') setTimeout(()=>network.redraw(),50);
 }
 
@@ -467,6 +568,8 @@ _PAGE = r"""<!DOCTYPE html>
 <div id="tabs">
   <div class="tab active" data-tab="graph" onclick="switchTab('graph',this)">Topology Graph</div>
   <div class="tab" data-tab="issues" onclick="switchTab('issues',this)">Issues <span class="tab-badge %%ISS_BADGE%%">%%TOTAL_ISS%%</span></div>
+  <div class="tab" data-tab="flows" onclick="switchTab('flows',this)">Flows <span class="tab-badge tab-info">%%FLOW_COUNT%%</span></div>
+  <div class="tab" data-tab="security" onclick="switchTab('security',this)">Security <span class="tab-badge tab-info">%%SENS_COUNT%%</span></div>
   <div class="tab" data-tab="api" onclick="switchTab('api',this)">Hubs &amp; Modules</div>
   <div class="tab" data-tab="aicontext" onclick="switchTab('aicontext',this)">AI Context</div>
 </div>
@@ -525,6 +628,18 @@ _PAGE = r"""<!DOCTYPE html>
       <div class="iss-stat"><div class="iss-n">%%TOTAL_EDGES%%</div><div class="iss-l">Deps</div></div>
     </div>
     %%ISSUE_HTML%%
+  </div>
+
+  <div id="flows-pane" class="cpane">
+    <h1>Entry Points &amp; Flows</h1>
+    <p class="sub">Auto-derived from the dependency graph: each entry point (API route, page, or main file) and the files it reaches through imports. Click a card to jump to it in the graph; click a chip to open that file in your editor.</p>
+    %%FLOWS_HTML%%
+  </div>
+
+  <div id="security-pane" class="cpane">
+    <h1>Security &amp; Sensitive Surfaces</h1>
+    <p class="sub">Auto-classified files that touch authentication, cryptography, secrets, payments, the database, network calls, or user input. These are the layers to review first in any audit. Click a file to inspect it in the graph or open it in your editor.</p>
+    %%SENSITIVE_HTML%%
   </div>
 
   <div id="api-pane" class="cpane">
