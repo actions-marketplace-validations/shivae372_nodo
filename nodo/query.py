@@ -49,6 +49,62 @@ def _find_node(ctx, needle):
     return None
 
 
+def _bfs_path(start_id, goal_id, adj):
+    """Shortest path start->goal over directed adjacency, or None."""
+    from collections import deque
+    prev = {start_id: None}
+    q = deque([start_id])
+    while q:
+        cur = q.popleft()
+        if cur == goal_id:
+            chain = []
+            while cur is not None:
+                chain.append(cur)
+                cur = prev[cur]
+            return list(reversed(chain))
+        for nxt in adj.get(cur, []):
+            if nxt not in prev:
+                prev[nxt] = cur
+                q.append(nxt)
+    return None
+
+
+def path_between(out_dir, needle_a, needle_b):
+    """Show the dependency chain connecting two files (graphify `path` equivalent).
+
+    Tries A->B following imports; if none, tries B->A; reports either, or that
+    they are not connected through imports.
+    """
+    ctx = _load_context(out_dir)
+    if ctx is None:
+        return "No nodo-context.json found. Run a scan first: python nodo.py <project>"
+
+    a = _find_node(ctx, needle_a)
+    b = _find_node(ctx, needle_b)
+    for label, hit, needle in (('A', a, needle_a), ('B', b, needle_b)):
+        if hit is None:
+            return f"No file matching '{needle}'."
+        if isinstance(hit, list):
+            return (f"'{needle}' is ambiguous ({len(hit)} matches): "
+                    + ', '.join(n['rel'] for n in hit[:10]))
+
+    by_id = {n['id']: n['rel'] for n in ctx['files']}
+    out_adj = {}
+    for e in ctx.get('edges', []):
+        out_adj.setdefault(e['source'], []).append(e['target'])
+
+    fwd = _bfs_path(a['id'], b['id'], out_adj)
+    if fwd:
+        arrow = '\n  imports -> '.join(by_id[i] for i in fwd)
+        return (f"{a['rel']} reaches {b['rel']} in {len(fwd) - 1} hop(s):\n  {arrow}")
+    rev = _bfs_path(b['id'], a['id'], out_adj)
+    if rev:
+        arrow = '\n  imports -> '.join(by_id[i] for i in rev)
+        return (f"{b['rel']} reaches {a['rel']} in {len(rev) - 1} hop(s):\n  {arrow}")
+    return (f"{a['rel']} and {b['rel']} are not connected through the import graph "
+            "(no directed path either way).")
+
+
 def query_file(out_dir, needle):
     """Return a compact text report for one file's blast radius, or an error string."""
     ctx = _load_context(out_dir)

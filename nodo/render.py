@@ -255,6 +255,83 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
         txt.append(f'  Detail: {iss["detail"]}\n')
     (out_dir / 'nodo-issues.txt').write_text('\n'.join(txt) + '\n', encoding='utf-8')
 
+    # ── Prose architecture report (readable narrative; graphify GRAPH_REPORT
+    #    equivalent, plus issue posture which graphify lacks) ──
+    _write_report(out_dir, project_name, build_ts, nodes, edges, communities,
+                  comm_display, issues, hub_list, flows, sensitive,
+                  n_err, n_warn, n_info)
+
+
+def _write_report(out_dir, project_name, build_ts, nodes, edges, communities,
+                  comm_display, issues, hub_list, flows, sensitive,
+                  n_err, n_warn, n_info):
+    from collections import Counter
+    cats = Counter(n['category'] for n in nodes)
+    n_mods = len(set(communities.values())) if communities else 0
+    r = []
+    r.append(f'# {project_name} — Architecture Report\n')
+    r.append(f'> Generated {build_ts} by Nodo. A readable narrative companion to '
+             f'`nodo.html`. Regenerate after code changes.\n')
+
+    r.append('\n## Corpus\n')
+    r.append('| Metric | Value |')
+    r.append('|---|---|')
+    r.append(f'| Source files | {len(nodes)} |')
+    r.append(f'| Dependencies (edges) | {len(edges)} |')
+    r.append(f'| Modules (clusters) | {n_mods} |')
+    for label, key in (('API / routes', 'api'), ('Components', 'component'),
+                       ('Libraries', 'lib'), ('Pages', 'page'), ('Models', 'model')):
+        if cats.get(key):
+            r.append(f'| {label} | {cats[key]} |')
+
+    r.append('\n## Load-bearing files (highest blast radius)\n')
+    r.append('These are the most-depended-on files. A change here ripples widest — '
+             'review and test them with extra care.\n')
+    r.append('| File | Edges |')
+    r.append('|---|---|')
+    for h in hub_list[:10]:
+        r.append(f'| `{h["file"]}` | {h["edges"]} |')
+
+    if sensitive:
+        r.append('\n## Security posture\n')
+        r.append('Files auto-classified by the sensitive operations they perform. '
+                 'In an audit, start here.\n')
+        for layer in sensitive:
+            top = ', '.join(f'`{f["rel"]}`' for f in layer['files'][:3])
+            r.append(f'- **{layer["label"]}** — {layer["count"]} file(s). e.g. {top}')
+
+    if flows:
+        r.append('\n## Primary flows\n')
+        r.append('The entry points that reach the most of the codebase — the '
+                 'critical paths through the system.\n')
+        for f in flows[:8]:
+            r.append(f'- `{f["entry"]}` → touches {f["reach_count"]} files')
+
+    r.append('\n## Code health\n')
+    total = len(issues)
+    r.append(f'Nodo flagged **{total}** issues: {n_err} errors, {n_warn} warnings, '
+             f'{n_info} info. Breakdown by category:\n')
+    by_cat = Counter(i['category'] for i in issues)
+    r.append('| Category | Count |')
+    r.append('|---|---|')
+    for cat, cnt in by_cat.most_common():
+        r.append(f'| {cat} | {cnt} |')
+    if n_err:
+        r.append('\n**Errors need attention first.** See the Issues tab in '
+                 '`nodo.html` or `nodo-issues.txt` for exact lines and snippets.')
+
+    r.append('\n## Modules\n')
+    r.append('| # | Cluster | Size |')
+    r.append('|---|---|---|')
+    for c in comm_display:
+        r.append(f'| {c["id"]} | {c["name"]} | {c["size"]} |')
+
+    r.append('\n---\n')
+    r.append('*For machine-readable detail (every edge, issue, line number, and '
+             'snippet) see `nodo-context.json`. For blast-radius and path queries '
+             'run `nodo.py . --query <file>` or `--path <a> <b>`.*\n')
+    (out_dir / 'nodo-report.md').write_text('\n'.join(r) + '\n', encoding='utf-8')
+
 
 # The big HTML template lives in template.py to keep this file readable.
 from .template import build_html as _build_html  # noqa: E402

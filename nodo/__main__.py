@@ -18,7 +18,7 @@ from .clustering import detect_communities, community_summaries
 from .detectors import detect_all
 from .config import load_config, write_sample_config
 from .render import render
-from .query import query_file
+from .query import query_file, path_between
 from .hookinstall import emit_context, install_hook
 from .insights import entry_flows, sensitive_map
 
@@ -41,6 +41,10 @@ def main(argv=None):
     parser.add_argument('--query', metavar='FILE', default=None,
                         help="Print one file's blast radius (dependents, dependencies, "
                              "issues) from the existing map and exit. Token-cheap; for AI agents.")
+    parser.add_argument('--path', nargs=2, metavar=('FILE_A', 'FILE_B'), default=None,
+                        dest='path_pair',
+                        help="Show the import chain connecting two files (how does A reach B). "
+                             "Token-cheap; for AI agents.")
     parser.add_argument('--hook', action='store_true',
                         help="Install a Claude Code SessionStart hook so agents auto-load "
                              "the architecture map at session start. Then exit.")
@@ -88,6 +92,14 @@ def main(argv=None):
             if _run_scan(root, out_dir, project_name, cfg, args, quiet=True) is None:
                 return 1
         print(query_file(out_dir, args.query))
+        return 0
+
+    if args.path_pair:
+        if not (out_dir / 'nodo-context.json').exists():
+            print(f'No map yet — scanning {root} once ...', file=sys.stderr)
+            if _run_scan(root, out_dir, project_name, cfg, args, quiet=True) is None:
+                return 1
+        print(path_between(out_dir, args.path_pair[0], args.path_pair[1]))
         return 0
 
     result = _run_scan(root, out_dir, project_name, cfg, args)
@@ -151,6 +163,7 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
         print(f'  - {Path(result["json"]).name:22} machine-readable graph + issues (for AI agents)')
         print(f'  - {Path(result["md"]).name:22} token-cheap summary')
         print(f'  - {Path(result["txt"]).name:22} plain-text issue list')
+        print(f'  - {"nodo-report.md":22} readable architecture report')
     return result
 
 
