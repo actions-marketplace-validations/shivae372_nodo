@@ -43,12 +43,33 @@ Tell the user:
 
 ## When debugging with Nodo's output
 
+- **Cheapest impact check (preferred over reading files):** to learn what a file
+  depends on and what breaks if you change it, run a query instead of opening
+  files — it answers in ~200 tokens:
+
+  ```bash
+  python /path/to/nodo/nodo.py . --query path/to/file.ts
+  ```
+
+  It prints the file's dependents (who imports it), dependencies, hub rank, and
+  any issues — no rescan, reads the existing map.
 - To understand an unfamiliar area, read `.nodo/nodo-context.json` — it has the
-  dependency graph, the highest-coupling "hub" files, and every detected issue
-  with file path + line number + a code snippet.
-- To find what a change might break, look at the target file's entry in the
-  graph: its `hubs` ranking and neighbour list show the blast radius.
+  dependency graph (`files` + `edges`), the highest-coupling "hub" files, and
+  every detected issue with file path + line number + a code snippet.
 - The issues are already deduped and severity-sorted; treat `error` first.
+
+## Optional: auto-load the map every session
+
+Run once per project to install a Claude Code SessionStart hook so the map is
+injected into context automatically at the start of every session (no manual
+reading, saves tokens):
+
+```bash
+python /path/to/nodo/nodo.py . --hook
+```
+
+After that, regenerate the map with the skill whenever the code changes; the
+hook always serves the latest `.nodo/nodo-context.md`.
 
 ## Notes
 

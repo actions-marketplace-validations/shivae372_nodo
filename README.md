@@ -111,6 +111,51 @@ Or just tell your terminal agent:
 
 ---
 
+## Save your agent's tokens
+
+Two features turn Nodo from a viewer into an agent's memory — both cut tokens by
+answering questions the agent would otherwise spend reads on.
+
+### Blast-radius queries
+
+Instead of letting an agent open ten files to figure out "what breaks if I touch
+this", ask Nodo. One command, ~200 tokens, no rescan:
+
+```bash
+python nodo.py . --query lib/auth.ts
+```
+
+```
+FILE  lib/auth.ts
+      category=lib  loc=88  edges=17
+      hub rank #6 (high blast radius)
+
+DEPENDENTS (13) — these import it; changing its exports may break them:
+  <- app/api/login/route.ts
+  <- app/api/admin/users/route.ts
+  ...
+DEPENDENCIES (4) — this file imports:
+  -> lib/crypto.ts
+  ...
+ISSUES (1):
+  [warn] fetch() without timeout:L40 — external call can hang the function
+```
+
+### Auto-load the map at session start
+
+Install a Claude Code hook once, and every session silently receives the
+architecture summary — no grepping to rebuild context:
+
+```bash
+python nodo.py . --hook
+```
+
+This writes a `SessionStart` hook into `.claude/settings.json` that runs
+`nodo.py . --emit-context`, injecting `nodo-context.md` into the agent's context
+automatically. It's idempotent and preserves any existing settings.
+
+---
+
 ## What it detects
 
 Built-in, language-aware where it matters, noise-suppressed in test files:

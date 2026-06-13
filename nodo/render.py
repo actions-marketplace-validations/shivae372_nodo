@@ -83,7 +83,7 @@ def render(out_dir, project_name, abs_root, nodes, edges, communities,
 
     # ── artifacts: JSON + MD + TXT ──
     _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
-                     comm_display, issues, hub_list)
+                     comm_display, issues, hub_list, deg, rank_of)
 
     # ── vis nodes/edges ──
     vis_nodes = _build_vis_nodes(nodes, deg, rank_of, communities, issue_by_file)
@@ -155,7 +155,7 @@ def _build_vis_nodes(nodes, deg, rank_of, communities, issue_by_file):
 
 
 def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
-                     comm_display, issues, hub_list):
+                     comm_display, issues, hub_list, deg, rank_of):
     n_err = sum(1 for x in issues if x['severity'] == 'error')
     n_warn = sum(1 for x in issues if x['severity'] == 'warn')
     n_info = sum(1 for x in issues if x['severity'] == 'info')
@@ -172,6 +172,15 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
         },
         'hubs': hub_list,
         'communities': comm_display,
+        # compact file + edge tables so `--query` can answer blast-radius
+        # questions without re-scanning the project.
+        'files': [
+            {'id': n['id'], 'rel': n['rel'], 'category': n['category'],
+             'loc': n.get('loc', 0), 'community': communities.get(n['id'], 0),
+             'hub_rank': rank_of.get(n['id'])}
+            for n in nodes
+        ],
+        'edges': edges,
         'issues': [
             {**{k: v for k, v in iss.items() if k != 'snippet'},
              'snippet': [f'{s["n"]}: {s["text"]}' for s in iss.get('snippet', [])]}
