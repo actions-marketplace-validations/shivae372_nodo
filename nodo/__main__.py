@@ -20,7 +20,7 @@ from .config import load_config, write_sample_config
 from .render import render
 from .query import query_file, path_between, explain_concept
 from .hookinstall import emit_context, install_hook
-from .insights import entry_flows, sensitive_map
+from .insights import entry_flows, sensitive_map, api_routes
 
 
 def main(argv=None):
@@ -160,9 +160,10 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
     if not quiet:
         print(f'  {len(issues)} issues ({n_e} errors, {n_w} warnings, {n_i} info)')
 
-    # derived insights — auto-generated flows + sensitive surfaces (any project)
+    # derived insights — auto-generated flows + sensitive surfaces + API ref
     flows = entry_flows(nodes, edges)
     sensitive = sensitive_map(nodes, file_texts)
+    apis = api_routes(nodes, file_texts)
 
     result = render(
         out_dir=out_dir,
@@ -171,7 +172,7 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
         nodes=nodes, edges=edges, communities=communities,
         comm_summaries=comm_sum, issues=issues,
         community_names=cfg.get('community_names'),
-        flows=flows, sensitive=sensitive,
+        flows=flows, sensitive=sensitive, apis=apis,
     )
 
     if not quiet:

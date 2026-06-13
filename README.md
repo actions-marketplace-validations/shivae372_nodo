@@ -78,9 +78,13 @@ Everything lands in `<project>/.nodo/`:
   light). Sliders for node size / edge width / label size.
 - **Issues tab** — code smells grouped by category, each with the exact line, a
   3-line code snippet, a **Copy AI Context** button, and an IDE deep-link.
-- **Flows tab** — auto-derived from the graph: every entry point (API route,
-  page, `main`) and the files it reaches through imports. A data-flow map with
-  zero configuration.
+- **Data Flow tab** — auto-derived from the graph: each entry point (API route,
+  page, `main`) rendered as a numbered step-by-step sequence — step 1 the entry,
+  then the files imported at each depth. Read left to right to see how a request
+  moves through the code. Zero configuration.
+- **API Reference tab** — every HTTP route grouped by domain, with the methods
+  each handles (read from the actual handler exports, not guessed) as colour-coded
+  badges. Click a path to open it in your editor.
 - **Security tab** — files auto-classified by what they touch (auth, crypto,
   secrets, payments, database, network, user input) with the matched terms — the
   surfaces to review first in any audit.

@@ -9,6 +9,8 @@ configuration. No framework assumptions beyond generic patterns.
                      a few levels of imports inward — "this endpoint touches X, Y, Z".
   - sensitive_map(): classify files that handle auth, crypto, secrets, payments,
                      database, or external network calls into security layers.
+  - api_routes():    derive a clean, grouped HTTP route list from API files +
+                     the methods they export/handle (a real API reference).
 """
 import re
 from collections import defaultdict
@@ -44,14 +46,20 @@ def entry_flows(nodes, edges, limit=20, depth=2):
     flows = []
     for ent in entries:
         seen = set()
+        # ordered BFS layers — step 1 is the entry, step 2 its direct imports, etc.
+        layers = [[ent['rel']]]
         frontier = [ent['id']]
         for _ in range(depth):
             nxt = []
+            layer_rels = []
             for nid in frontier:
                 for t in out_adj.get(nid, []):
                     if t not in seen and t != ent['id']:
                         seen.add(t)
                         nxt.append(t)
+                        layer_rels.append(id_to[t]['rel'])
+            if layer_rels:
+                layers.append(sorted(layer_rels))
             frontier = nxt
         reaches = sorted(id_to[t]['rel'] for t in seen)
         if reaches:
@@ -60,6 +68,7 @@ def entry_flows(nodes, edges, limit=20, depth=2):
                 'category': ent['category'],
                 'reaches': reaches,
                 'reach_count': len(reaches),
+                'steps': layers,   # ordered call sequence by import depth
             })
     # most-reaching entry points first — they're the most important paths
     flows.sort(key=lambda f: f['reach_count'], reverse=True)
@@ -129,3 +138,78 @@ def sensitive_map(nodes, file_texts, per_layer=12):
                 'count': len(matched),
             })
     return layers
+
+
+# ── API reference ─────────────────────────────────────────────────────────────
+_HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+
+# how to turn a file path into a clean URL-ish route, per framework convention
+def _route_path(rel):
+    p = rel
+    # Next.js app router: app/api/x/route.ts -> /api/x ; app/x/page.tsx -> /x
+    p = re.sub(r'/route\.(t|j)sx?$', '', p)
+    p = re.sub(r'/(page|layout|index)\.(t|j)sx?$', '', p)
+    # strip a leading src/ or app dir marker but keep /api
+    p = re.sub(r'^(src/)?app/', '/', p)
+    p = re.sub(r'^(src/)?pages/', '/', p)
+    p = re.sub(r'^src/', '/', p)
+    # strip remaining extension for non-route files
+    p = re.sub(r'\.(t|j)sx?$|\.py$|\.rb$|\.go$', '', p)
+    if not p.startswith('/'):
+        p = '/' + p
+    p = re.sub(r'//+', '/', p)
+    return p
+
+
+def _methods_in(text):
+    """Detect HTTP methods a route file handles (exports or registers)."""
+    found = []
+    for m in _HTTP_METHODS:
+        # Next.js: `export async function GET` / `export const GET`
+        # Express/Flask/etc: `.get(` `.post(` `@app.route(..., methods=['GET'])`
+        if (re.search(rf'\bexport\s+(async\s+)?(function|const)\s+{m}\b', text)
+                or re.search(rf'\.{m.lower()}\s*\(', text)
+                or re.search(rf"methods\s*=\s*\[[^\]]*['\"]{m}['\"]", text, re.I)
+                or re.search(rf"@\w+\.{m.lower()}\b", text)):
+            found.append(m)
+    return found
+
+
+def api_routes(nodes, file_texts):
+    """Return grouped route list: [{group, routes:[{path, methods, file}]}].
+
+    A file is a route if its category is 'api' or its path looks like one. The
+    group is the first meaningful path segment (e.g. 'account', 'admin').
+    """
+    METHOD_COLOR = {
+        'GET': '#3b82f6', 'POST': '#10b981', 'PUT': '#f59e0b',
+        'PATCH': '#8b5cf6', 'DELETE': '#dc2626', 'HEAD': '#64748b',
+        'OPTIONS': '#64748b',
+    }
+    routes = []
+    for n in nodes:
+        rel = n['rel']
+        is_api = n['category'] == 'api' or re.search(r'/api/|/routes?/|route\.(t|j)s', rel)
+        if not is_api:
+            continue
+        text = file_texts.get(rel, '')
+        methods = _methods_in(text) or ['—']
+        path = _route_path(rel)
+        routes.append({'path': path, 'methods': methods, 'file': rel,
+                       'colors': [METHOD_COLOR.get(m, '#64748b') for m in methods]})
+    routes.sort(key=lambda r: r['path'])
+
+    # group by the segment after /api/ (or the first segment)
+    groups = defaultdict(list)
+    for r in routes:
+        parts = [s for s in r['path'].split('/') if s]
+        if 'api' in parts:
+            idx = parts.index('api')
+            grp = parts[idx + 1] if idx + 1 < len(parts) else 'api'
+        else:
+            grp = parts[0] if parts else 'root'
+        grp = re.sub(r'\[.*?\]', '', grp) or 'root'
+        groups[grp].append(r)
+
+    return [{'group': g.replace('-', ' ').title(), 'routes': groups[g]}
+            for g in sorted(groups)]

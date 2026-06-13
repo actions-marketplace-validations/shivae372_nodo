@@ -41,9 +41,10 @@ def _esc(s):
 
 def build_html(project_name, abs_root, build_date, build_ts,
                vis_nodes, vis_edges, issues, stats, hub_list,
-               comm_display, nodes, deg, flows=None, sensitive=None):
+               comm_display, nodes, deg, flows=None, sensitive=None, apis=None):
     flows = flows or []
     sensitive = sensitive or []
+    apis = apis or []
     nodes_json = json.dumps(vis_nodes, separators=(',', ':'))
     edges_json = json.dumps(vis_edges, separators=(',', ':'))
     issues_json = json.dumps(issues, separators=(',', ':'))
@@ -80,9 +81,11 @@ def build_html(project_name, abs_root, build_date, build_ts,
     # ── issue cards ──
     issue_html = _build_issue_html(issues, abs_root)
 
-    # ── flows + sensitive (auto-derived, graphify-style tabs) ──
+    # ── flows + sensitive + api reference (auto-derived, graphify-style tabs) ──
     flows_html = _build_flows_html(flows, abs_root)
     sensitive_html = _build_sensitive_html(sensitive, abs_root)
+    api_html = _build_api_html(apis, abs_root)
+    api_count = sum(len(g['routes']) for g in apis)
 
     n_err = stats['issues']['error']
     n_warn = stats['issues']['warn']
@@ -133,8 +136,10 @@ def build_html(project_name, abs_root, build_date, build_ts,
         '%%ISSUE_HTML%%': issue_html,
         '%%FLOWS_HTML%%': flows_html,
         '%%SENSITIVE_HTML%%': sensitive_html,
+        '%%API_HTML%%': api_html,
         '%%FLOW_COUNT%%': str(len(flows)),
         '%%SENS_COUNT%%': str(sum(s['count'] for s in sensitive)),
+        '%%API_COUNT%%': str(api_count),
         '%%VIS_CSS_TAG%%': vis_css_tag,
     }
     for k, v in text_repl.items():
@@ -211,29 +216,66 @@ def _cat_colour(rel):
 
 
 def _build_flows_html(flows, abs_root):
-    """Auto-derived entry-point flows: 'this endpoint/page reaches these files'."""
+    """Numbered step-by-step call sequences per entry point (read top-to-bottom).
+
+    Each flow renders as: STEP 1 (entry) -> STEP 2 (its direct imports) -> STEP 3
+    (their imports), so a reader can follow how a request/page actually moves
+    through the code — the graphify Data Flow tab, auto-built from real imports.
+    """
     if not flows:
         return '<p class="sub">No entry points detected (no API routes, pages, or main files found).</p>'
     parts = []
     for f in flows:
-        col = _cat_colour(f['entry'])
-        link = _ide_link(abs_root, f['entry'])
-        reaches = f['reaches']
-        chips = ''.join(
-            f'<a class="flow-chip" href="{_ide_link(abs_root, r)}" '
-            f'onclick="event.stopPropagation()" title="{_esc(r)}">{_esc(r.split("/")[-1])}</a>'
-            for r in reaches[:18])
-        more = f'<span class="flow-more">+{len(reaches) - 18} more</span>' if len(reaches) > 18 else ''
+        steps = f.get('steps') or [[f['entry']]]
         node_js = json.dumps(f['entry'].split('/')[-1])
+        # title row
+        col = _cat_colour(f['entry'])
         parts.append(
-            f'<div class="flow-card" onclick="jumpToNode({node_js})">'
-            f'<div class="flow-head">'
+            f'<div class="flow-title">'
             f'<span class="flow-dot" style="background:{col}"></span>'
-            f'<a class="flow-entry" href="{link}" onclick="event.stopPropagation()">{_esc(f["entry"])}</a>'
-            f'<span class="flow-badge">reaches {f["reach_count"]}</span>'
-            f'</div>'
-            f'<div class="flow-chips">{chips}{more}</div>'
+            f'<a class="flow-entry" href="{_ide_link(abs_root, f["entry"])}">{_esc(f["entry"])}</a>'
+            f'<span class="flow-badge">{f["reach_count"]} files in {len(steps)} step(s)</span>'
             f'</div>')
+        # numbered step strip
+        cells = []
+        for i, layer in enumerate(steps, 1):
+            shown = layer[:6]
+            files_html = ''.join(
+                f'<a class="flow-file" href="{_ide_link(abs_root, r)}" '
+                f'title="{_esc(r)}" onclick="event.stopPropagation();jumpToNode('
+                f'{json.dumps(r.split("/")[-1])})">{_esc(r.split("/")[-1])}</a>'
+                for r in shown)
+            extra = f'<span class="flow-more">+{len(layer) - 6}</span>' if len(layer) > 6 else ''
+            label = 'entry' if i == 1 else f'depth {i - 1}'
+            cells.append(
+                f'<div class="flow-step"><div class="flow-n">{i}</div>'
+                f'<div class="flow-step-label">{label}</div>'
+                f'<div class="flow-step-files">{files_html}{extra}</div></div>')
+            if i < len(steps):
+                cells.append('<div class="flow-arr">&#8594;</div>')
+        parts.append(f'<div class="flow">{"".join(cells)}</div>')
+    return '\n'.join(parts)
+
+
+def _build_api_html(apis, abs_root):
+    """Clean grouped HTTP route reference (graphify-style API tab)."""
+    if not apis:
+        return '<p class="sub">No API routes detected (no api/ folder or route handlers found).</p>'
+    parts = []
+    for grp in apis:
+        parts.append(f'<div class="api-group">{_esc(grp["group"])}</div>')
+        for r in grp['routes']:
+            badges = ''.join(
+                f'<span class="api-badge" style="background:{c}18;color:{c};'
+                f'border:1px solid {c}44">{_esc(m)}</span>'
+                for m, c in zip(r['methods'], r['colors']))
+            link = _ide_link(abs_root, r['file'])
+            node_js = json.dumps(r['file'].split('/')[-1])
+            parts.append(
+                f'<div class="api-row" onclick="jumpToNode({node_js})">'
+                f'<a class="api-ep" href="{link}" onclick="event.stopPropagation()" '
+                f'title="{_esc(r["file"])}">{_esc(r["path"])}</a>'
+                f'<span class="api-methods">{badges}</span></div>')
     return '\n'.join(parts)
 
 
@@ -374,18 +416,21 @@ kbd{display:inline-block;padding:1px 6px;font-family:var(--mono);font-size:10px;
 #ctx{position:fixed;display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;z-index:9999;min-width:170px;padding:4px 0;box-shadow:var(--shadow-md)}
 #ctx div{padding:7px 14px;font-size:12px;cursor:pointer;color:var(--text2)}
 #ctx div:hover{background:var(--accent-bg);color:var(--accent)}
-/* Flows tab */
-.flow-card{border:1px solid var(--border2);border-radius:8px;padding:11px 14px;margin-bottom:9px;cursor:pointer;transition:box-shadow .12s,border-color .12s;background:var(--bg)}
-.flow-card:hover{box-shadow:var(--shadow-md);border-color:var(--accent-light)}
-.flow-head{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+/* Flows tab — numbered step-by-step call sequences */
+.flow-title{display:flex;align-items:center;gap:8px;margin:22px 0 8px}
 .flow-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.flow-entry{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text);text-decoration:none}
+.flow-entry{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text);text-decoration:none}
 .flow-entry:hover{color:var(--accent)}
 .flow-badge{margin-left:auto;font-size:10px;font-weight:600;color:var(--text3);background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:1px 8px;white-space:nowrap}
-.flow-chips{display:flex;flex-wrap:wrap;gap:4px}
-.flow-chip{font-family:var(--mono);font-size:10px;color:var(--text2);background:var(--bg2);border:1px solid var(--border2);border-radius:4px;padding:1px 6px;text-decoration:none;transition:all .1s}
-.flow-chip:hover{background:var(--accent-bg);color:var(--accent);border-color:var(--accent-light)}
-.flow-more{font-size:10px;color:var(--text4);padding:1px 6px;align-self:center}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:0;margin-bottom:14px;padding:12px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px}
+.flow-step{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:8px 11px;min-width:130px;max-width:200px}
+.flow-n{width:18px;height:18px;background:var(--accent);color:#fff;border-radius:50%;font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-bottom:5px}
+.flow-step-label{font-size:9px;text-transform:uppercase;letter-spacing:.4px;color:var(--text4);margin-bottom:4px}
+.flow-step-files{display:flex;flex-direction:column;gap:2px}
+.flow-file{font-family:var(--mono);font-size:10px;color:var(--accent);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flow-file:hover{text-decoration:underline}
+.flow-more{font-size:10px;color:var(--text4)}
+.flow-arr{font-size:18px;color:var(--text4);padding:0 7px;align-self:center;flex-shrink:0}
 /* Security tab */
 .sec-layer{display:flex;gap:13px;padding:13px 0;border-bottom:1px solid var(--border2)}
 .sec-n{width:26px;height:26px;background:var(--accent);color:#fff;border-radius:50%;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
@@ -397,6 +442,14 @@ kbd{display:inline-block;padding:1px 6px;font-family:var(--mono);font-size:10px;
 .sec-file-row:hover{background:var(--accent-bg)}
 .sec-file{font-family:var(--mono);font-size:11px;color:var(--accent);text-decoration:none;flex-shrink:0}
 .sec-hits{font-size:10px;color:var(--text4);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* API Reference tab */
+.api-group{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin:18px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border2)}
+.api-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 8px;border-radius:5px;cursor:pointer;transition:background .1s}
+.api-row:hover{background:var(--accent-bg)}
+.api-ep{font-family:var(--mono);font-size:12px;color:var(--text);text-decoration:none;flex-shrink:1;word-break:break-all}
+.api-ep:hover{color:var(--accent)}
+.api-methods{display:flex;gap:4px;flex-shrink:0}
+.api-badge{font-size:9px;font-weight:700;font-family:var(--mono);padding:1px 6px;border-radius:4px;letter-spacing:.3px}
 """
 
 # ── JS (uses placeholders __NODES__, __EDGES__, __ISSUES__, __META__) ─────────
@@ -405,7 +458,7 @@ const nodesData = __NODES__;
 const edgesData = __EDGES__;
 const ISSUES    = __ISSUES__;
 const META      = __META__;
-const TAB_ORDER = ['graph','issues','flows','security','api','aicontext'];
+const TAB_ORDER = ['graph','issues','flows','security','api','hubs','aicontext'];
 
 function switchTab(name, el){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -414,7 +467,7 @@ function switchTab(name, el){
   const sb=document.getElementById('sidebar'), gp=document.getElementById('graph-pane');
   sb.style.display = name==='graph'?'flex':'none';
   gp.style.display = name==='graph'?'flex':'none';
-  ['issues','flows','security','api','aicontext'].forEach(id=>{const p=document.getElementById(id+'-pane'); if(p)p.style.display=(id===name)?'block':'none';});
+  ['issues','flows','security','api','hubs','aicontext'].forEach(id=>{const p=document.getElementById(id+'-pane'); if(p)p.style.display=(id===name)?'block':'none';});
   if(name==='graph' && typeof network!=='undefined') setTimeout(()=>network.redraw(),50);
 }
 
@@ -568,9 +621,10 @@ _PAGE = r"""<!DOCTYPE html>
 <div id="tabs">
   <div class="tab active" data-tab="graph" onclick="switchTab('graph',this)">Topology Graph</div>
   <div class="tab" data-tab="issues" onclick="switchTab('issues',this)">Issues <span class="tab-badge %%ISS_BADGE%%">%%TOTAL_ISS%%</span></div>
-  <div class="tab" data-tab="flows" onclick="switchTab('flows',this)">Flows <span class="tab-badge tab-info">%%FLOW_COUNT%%</span></div>
+  <div class="tab" data-tab="flows" onclick="switchTab('flows',this)">Data Flow <span class="tab-badge tab-info">%%FLOW_COUNT%%</span></div>
   <div class="tab" data-tab="security" onclick="switchTab('security',this)">Security <span class="tab-badge tab-info">%%SENS_COUNT%%</span></div>
-  <div class="tab" data-tab="api" onclick="switchTab('api',this)">Hubs &amp; Modules</div>
+  <div class="tab" data-tab="api" onclick="switchTab('api',this)">API Reference <span class="tab-badge tab-info">%%API_COUNT%%</span></div>
+  <div class="tab" data-tab="hubs" onclick="switchTab('hubs',this)">Hubs &amp; Modules</div>
   <div class="tab" data-tab="aicontext" onclick="switchTab('aicontext',this)">AI Context</div>
 </div>
 
@@ -631,8 +685,8 @@ _PAGE = r"""<!DOCTYPE html>
   </div>
 
   <div id="flows-pane" class="cpane">
-    <h1>Entry Points &amp; Flows</h1>
-    <p class="sub">Auto-derived from the dependency graph: each entry point (API route, page, or main file) and the files it reaches through imports. Click a card to jump to it in the graph; click a chip to open that file in your editor.</p>
+    <h1>Data Flow</h1>
+    <p class="sub">How each entry point (API route, page, or main file) moves through the code: step 1 is the entry, then each step shows the files imported at that depth. Read left to right. Click any file to jump to it in the graph. Auto-derived from real imports.</p>
     %%FLOWS_HTML%%
   </div>
 
@@ -643,6 +697,12 @@ _PAGE = r"""<!DOCTYPE html>
   </div>
 
   <div id="api-pane" class="cpane">
+    <h1>API Reference</h1>
+    <p class="sub">All HTTP routes detected in the project, grouped by domain, with the methods each handles. Click a route to jump to it in the graph; click the path to open the file in your editor.</p>
+    %%API_HTML%%
+  </div>
+
+  <div id="hubs-pane" class="cpane">
     <h1>Hubs &amp; Modules</h1>
     <p class="sub">The highest-degree files (change them carefully) and the detected module clusters.</p>
     <div id="hub-list"></div>
