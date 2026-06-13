@@ -1,0 +1,10 @@
+Nodo
+Copyright (c) 2026 Shiva Kumar Esakki Pandiyan
+
+This product bundles the following third-party software:
+
+vis-network
+  Files:    nodo/vendor/vis-network.min.js
+  Source:   https://github.com/visjs/vis-network
+  License:  MIT and Apache-2.0
+  See the vis-network repository for full license text.

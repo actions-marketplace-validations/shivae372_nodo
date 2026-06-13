@@ -193,6 +193,7 @@ map after a refactor. See the skill's `SKILL.md` for details.
 
 ## License
 
-MIT. Bundles [vis-network](https://github.com/visjs/vis-network) (MIT/Apache-2.0).
+MIT — see [LICENSE](LICENSE). Bundles [vis-network](https://github.com/visjs/vis-network)
+(MIT/Apache-2.0); see [NOTICE](NOTICE) for third-party attribution.
 
 Contributions welcome — new detectors and language resolvers especially.
