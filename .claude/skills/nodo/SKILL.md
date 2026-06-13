@@ -53,9 +53,25 @@ Tell the user:
 
   It prints the file's dependents (who imports it), dependencies, hub rank, and
   any issues — no rescan, reads the existing map.
-- To understand an unfamiliar area, read `.nodo/nodo-context.json` — it has the
-  dependency graph (`files` + `edges`), the highest-coupling "hub" files, and
-  every detected issue with file path + line number + a code snippet.
+- **How does A connect to B:** trace the import chain between two files:
+
+  ```bash
+  python /path/to/nodo/nodo.py . --path path/to/a.ts path/to/b.ts
+  ```
+
+- **Where does a concept live:** BM25 search (handles synonyms, e.g. `auth`
+  also matches login/jwt/session) — use this instead of grepping to locate a
+  feature:
+
+  ```bash
+  python /path/to/nodo/nodo.py . --explain "authentication"
+  ```
+
+- For a readable narrative overview, read `.nodo/nodo-report.md` (corpus,
+  load-bearing files, security posture, primary flows, code health).
+- To understand an unfamiliar area in full, read `.nodo/nodo-context.json` — it
+  has the dependency graph (`files` + `edges`), hubs, modules, auto-derived
+  flows + sensitive surfaces, and every issue with line number + snippet.
 - The issues are already deduped and severity-sorted; treat `error` first.
 
 ## Optional: auto-load the map every session

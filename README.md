@@ -147,6 +147,18 @@ ISSUES (1):
   [warn] fetch() without timeout:L40 — external call can hang the function
 ```
 
+### Trace & explain (no file reads)
+
+```bash
+python nodo.py . --path lib/auth.ts lib/db.ts   # how does A reach B through imports
+python nodo.py . --explain "authentication"     # which files implement a concept (BM25 + synonyms)
+```
+
+`--path` BFS-traces the import chain between two files. `--explain` is a
+zero-dependency BM25 keyword search with a code-aware tokenizer (splits
+`camelCase`/`snake_case`) and a concept-synonym map, so `auth` also finds
+`login`/`jwt`/`session`. Both answer in a few hundred tokens.
+
 ### Auto-load the map at session start
 
 Install a Claude Code hook once, and every session silently receives the

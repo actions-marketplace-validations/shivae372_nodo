@@ -18,7 +18,7 @@ from .clustering import detect_communities, community_summaries
 from .detectors import detect_all
 from .config import load_config, write_sample_config
 from .render import render
-from .query import query_file, path_between
+from .query import query_file, path_between, explain_concept
 from .hookinstall import emit_context, install_hook
 from .insights import entry_flows, sensitive_map
 
@@ -45,6 +45,9 @@ def main(argv=None):
                         dest='path_pair',
                         help="Show the import chain connecting two files (how does A reach B). "
                              "Token-cheap; for AI agents.")
+    parser.add_argument('--explain', metavar='CONCEPT', default=None,
+                        help="Find the files most related to a concept (e.g. 'authentication', "
+                             "'billing'). Lexical search over paths + content. For AI agents.")
     parser.add_argument('--hook', action='store_true',
                         help="Install a Claude Code SessionStart hook so agents auto-load "
                              "the architecture map at session start. Then exit.")
@@ -100,6 +103,21 @@ def main(argv=None):
             if _run_scan(root, out_dir, project_name, cfg, args, quiet=True) is None:
                 return 1
         print(path_between(out_dir, args.path_pair[0], args.path_pair[1]))
+        return 0
+
+    if args.explain:
+        # needs file content for BM25 body ranking — do a quiet scan to get it,
+        # which also refreshes the map.
+        ignore_dirs = list(cfg.get('ignore_dirs', [])) + list(args.ignore)
+        ignore_dirs.append(out_dir.name)
+        _nodes, _edges, file_texts = build_graph(
+            root, ignore_dirs=ignore_dirs,
+            respect_gitignore=not args.no_gitignore,
+            max_file_kb=cfg.get('max_file_kb', 512))
+        if not (out_dir / 'nodo-context.json').exists():
+            if _run_scan(root, out_dir, project_name, cfg, args, quiet=True) is None:
+                return 1
+        print(explain_concept(out_dir, args.explain, file_texts=file_texts))
         return 0
 
     result = _run_scan(root, out_dir, project_name, cfg, args)

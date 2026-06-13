@@ -105,6 +105,68 @@ def path_between(out_dir, needle_a, needle_b):
             "(no directed path either way).")
 
 
+def explain_concept(out_dir, concept, file_texts=None, limit=12):
+    """BM25 'where does <concept> live' search — zero-dependency, no model.
+
+    Builds a BM25 index over file paths + content (code-aware tokenizer), expands
+    the query with concept synonyms, and returns the best-matching files with
+    their module and issue counts. file_texts (rel->text) gives content ranking;
+    without it, ranks on path tokens alone.
+    """
+    from .search import BM25, tokenize, expand_query
+    ctx = _load_context(out_dir)
+    if ctx is None:
+        return "No nodo-context.json found. Run a scan first: python nodo.py <project>"
+
+    files = ctx['files']
+    issues_by_file = {}
+    for i in ctx.get('issues', []):
+        if i.get('file'):
+            issues_by_file.setdefault(i['file'], []).append(i)
+
+    # Build documents: path tokens repeated (path is a strong signal) + content.
+    docs = []
+    node_by_rel = {}
+    for n in files:
+        rel = n['rel']
+        node_by_rel[rel] = n
+        path_toks = tokenize(rel.replace('/', ' ')) * 3  # weight path 3x
+        body_toks = tokenize(file_texts.get(rel, '')) if file_texts else []
+        docs.append((rel, path_toks + body_toks))
+
+    bm = BM25(docs)
+    qweights = expand_query(concept)
+    if not qweights:
+        return "Give a concept to explain, e.g. --explain authentication"
+    ranked = bm.score(qweights)
+
+    if not ranked:
+        return (f"No files clearly relate to '{concept}'. Try a different term, or "
+                "check the Security / Flows tabs in nodo.html.")
+
+    matched_terms = ', '.join(sorted(qweights, key=lambda t: -qweights[t]))
+    out = [f"Files most related to '{concept}' "
+           f"(BM25 over {len(docs)} files; searched: {matched_terms}):", '']
+    top = ranked[:limit]
+    for rel, score in top:
+        n = node_by_rel[rel]
+        iss = issues_by_file.get(rel)
+        iss_tag = f"  ({len(iss)} issue(s))" if iss else ''
+        out.append(f"  {rel}  [{n.get('category','?')}]{iss_tag}")
+
+    from collections import Counter
+    mods = Counter(node_by_rel[rel]['community'] for rel, _ in top)
+    comm_names = {c['id']: c['name'] for c in ctx.get('communities', [])}
+    if mods:
+        out.append('')
+        out.append('Concentrated in modules: ' + ', '.join(
+            f"{comm_names.get(m, 'module ' + str(m))} ({cnt})"
+            for m, cnt in mods.most_common(3)))
+    out.append('')
+    out.append("Tip: `--query <file>` for any of these to see its blast radius.")
+    return '\n'.join(out)
+
+
 def query_file(out_dir, needle):
     """Return a compact text report for one file's blast radius, or an error string."""
     ctx = _load_context(out_dir)
