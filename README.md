@@ -1,5 +1,10 @@
 # Nodo
 
+[![PyPI](https://img.shields.io/pypi/v/nodo-map.svg)](https://pypi.org/project/nodo-map/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/pypi/pyversions/nodo-map.svg)](https://pypi.org/project/nodo-map/)
+[![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](pyproject.toml)
+
 **Map any codebase in seconds.** Nodo scans your project, draws an interactive
 dependency graph, flags code smells, and — crucially — emits clean, structured
 context your AI coding agent can actually use.
@@ -30,19 +35,19 @@ your architecture and open issues without you explaining a thing.
 
 ## Quick start
 
-No install needed — just clone and run:
+Install from PyPI (the `nodo` command is published as `nodo-map`):
+
+```bash
+pip install nodo-map
+nodo /path/to/your/project --open
+```
+
+Or run straight from source with **zero install** — pure standard library, no dependencies:
 
 ```bash
 git clone https://github.com/shivae372/nodo
 cd nodo
 python -m nodo /path/to/your/project --open
-```
-
-Or install the `nodo` command:
-
-```bash
-pip install -e .
-nodo /path/to/your/project --open
 ```
 
 Run it inside a project with no path to scan the current directory:
