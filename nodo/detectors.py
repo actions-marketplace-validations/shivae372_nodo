@@ -235,6 +235,20 @@ def detect_all(nodes, edges, file_texts, custom_rules=None):
     issues = run_builtin_detectors(nodes, edges, file_texts)
     if custom_rules:
         issues += run_custom_rules(nodes, file_texts, custom_rules)
+    # cross-file detectors: the bugs an LLM editing one file can't see
+    try:
+        from .crossfile import detect_cross_file
+        import sys
+        # cycle DFS can go deep on large graphs; lift the limit for the call
+        old_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(max(old_limit, len(nodes) * 4 + 1000))
+        try:
+            issues += detect_cross_file(nodes, edges, file_texts)
+        finally:
+            sys.setrecursionlimit(old_limit)
+    except Exception as e:
+        # never let an analysis bug break the whole run
+        print(f'[nodo] cross-file analysis skipped: {e}')
     issues.sort(key=lambda x: (SEVERITY_ORDER.get(x['severity'], 9), x['category'], x['file']))
     for i, iss in enumerate(issues):
         iss['idx'] = i
