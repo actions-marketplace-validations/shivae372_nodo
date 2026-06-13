@@ -10,6 +10,8 @@ that works offline. No build step, no `npm install`, no account.
 > Built for solo "vibe coders" who lean on Claude Code / Cursor / Windsurf, and
 > for senior engineers who want a fast architectural read on an unfamiliar repo.
 
+![Nodo topology graph](docs/screenshot-graph.png)
+
 ---
 
 ## Why
@@ -76,6 +78,8 @@ Everything lands in `<project>/.nodo/`:
 - **AI Context** — one-click copies: project summary, full issue backlog, or a
   scoped prompt per issue.
 - **Hot Paths** (`h`) — highlight the architectural hubs and what they touch.
+
+![Nodo issues tab with code snippets and Copy AI Context](docs/screenshot-issues.png)
 
 ### AI-native features
 
