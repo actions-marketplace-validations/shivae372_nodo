@@ -1,0 +1,5 @@
+# Normalize line endings to LF for all text files
+* text=auto eol=lf
+
+# Treat the vendored library as a binary-ish blob (don't munge it)
+nodo/vendor/vis-network.min.js -text

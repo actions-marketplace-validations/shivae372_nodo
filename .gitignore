@@ -1,0 +1,28 @@
+# Nodo output
+.nodo/
+nodo.html
+nodo-context.json
+nodo-context.md
+nodo-issues.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+.venv/
+venv/
+env/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# test scratch
+_test*.png
+_*.html
