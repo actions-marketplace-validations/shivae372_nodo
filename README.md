@@ -290,10 +290,24 @@ rules show up in the viewer and artifacts alongside the built-ins.
 
 ## Languages
 
-Best support for **JavaScript / TypeScript** (incl. JSX, TSX, Vue, Svelte) and
-**Python** — imports, routes, components, hooks, models are all understood. A
-generic resolver covers Go, Rust, Java, Ruby, PHP, C#, and more at the
-file-dependency level. Categorization is heuristic and framework-agnostic.
+**Import graph + categorization** work on every language via the resolver
+(relative paths, aliases, dir-index): JS/TS/JSX/TSX/Vue/Svelte and Python are
+deepest (routes, components, hooks, models understood); Go, Rust, Java, C/C++,
+C#, Ruby, PHP and others resolve at the file-dependency level.
+
+**Tree-sitter AST symbol extraction** (auto when tree-sitter is installed, or
+`--ast`) covers the mainstream set — Python, JS, TS, TSX, Go, Rust, Java, C, C++,
+C#, Kotlin, Swift, Scala, Dart, Ruby, PHP, Lua, Solidity, Bash — via a
+*grammar-agnostic definition matcher* over **47 installed grammars** (any grammar
+that follows tree-sitter's definition-node convention works automatically, no
+per-language code). This powers `--query <symbol>` across languages,
+disconnected-feature/orphan detection, and (for JS/TS) the AST-accurate
+argument-count contract check.
+
+Honest limits: local import *edges* are path-based — strongest for relative-import
+languages (JS/TS/Py/C/C++); module-path languages (Go/Rust/Java/C#) extract symbols
+and imports but resolve at the package level. Exotic/functional grammars (Haskell,
+OCaml, Erlang, …) fall back to the regex extractor.
 
 ---
 
