@@ -19,6 +19,14 @@ STOP = {
     'as', 'be', 'on', 'at', 'by', 'it', 'with', 'true', 'false', 'null', 'none',
     'type', 'interface', 'public', 'private', 'static', 'async', 'await',
     'string', 'number', 'boolean', 'void', 'int', 'str', 'list', 'dict',
+    # common English filler — keeps it out of concepts/topics/god-nodes
+    'that', 'these', 'those', 'your', 'you', 'our', 'their', 'its', 'has',
+    'have', 'had', 'was', 'were', 'will', 'would', 'should', 'can', 'could',
+    'may', 'might', 'must', 'not', 'what', 'when', 'where', 'which', 'who',
+    'how', 'all', 'any', 'each', 'more', 'most', 'some', 'such', 'only', 'than',
+    'then', 'here', 'there', 'about', 'into', 'over', 'after', 'before', 'also',
+    'just', 'via', 'we', 'they', 'them', 'i', 'so', 'no', 'yes', 'out', 'up',
+    'one', 'two', 'per', 'add', 'see', 'using', 'used', 'make', 'made',
 }
 
 # Concept synonyms — bridges "auth" vs "login"/"jwt". Querying any term pulls in

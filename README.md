@@ -326,6 +326,7 @@ nodo [PATH] [options]
   --explain CONCEPT    find the files & design docs related to a concept (BM25)
   --topics             print knowledge-graph topics (doc/PDF communities), then exit
   --hook               install a Claude Code SessionStart hook, then exit
+  --install            wire the map into Claude + Cursor + AGENTS.md, then exit
   --include-vendor     also analyse reference/vendored/example dirs
   --multimodal         link images/PDFs/video to the nodes near them
   --docs-only          index doc text but skip the multimodal asset pass
@@ -407,8 +408,10 @@ Knowledge topics (2) — communities of docs/PDFs:
   • stripe: stripe, charge, invoices, monthly, payments   [payments-spec.pdf, payments.md]
 ```
 
-The full graph is in `nodo-context.json` → `knowledge` (`concepts` + `topics`),
-mirrored in `nodo-knowledge.md`. Nodo builds this **deterministically and
+It also surfaces **god-nodes** — the most-connected concepts that the most
+documents flow through (`knowledge.god_nodes`). The full graph is in
+`nodo-context.json` → `knowledge` (`concepts` + `topics` + `god_nodes`), mirrored
+in `nodo-knowledge.md`. Nodo builds this **deterministically and
 offline**; the *semantic* layer — "how does auth actually work?", reading a
 diagram — is answered by the **Claude skill** on top (vision + reasoning over the
 graph). That's the division of labour: Nodo is the fast, private scaffold; Claude
@@ -471,6 +474,20 @@ No network calls. No telemetry. Your code never leaves your machine.
 Nodo ships a Claude Code skill in [`.claude/skills/nodo/`](.claude/skills/nodo/).
 Copy it into your project's `.claude/skills/` and type `/nodo` to regenerate the
 map after a refactor. See the skill's `SKILL.md` for details.
+
+### Other AI assistants
+
+Claude Code is the primary target, but one command wires the map into others too:
+
+```bash
+python nodo.py . --install
+```
+
+This installs the Claude Code SessionStart hook **and** writes an `AGENTS.md`
+section (read by Codex, Windsurf, Amp, OpenCode, and other agents) plus a Cursor
+rule (`.cursor/rules/nodo.mdc`, `alwaysApply`) — each telling the assistant to read
+`.nodo/nodo-context.md` and use `--query`/`--path`/`--explain` instead of grepping.
+Idempotent; re-run after upgrades.
 
 ---
 

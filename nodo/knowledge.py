@@ -104,9 +104,16 @@ def build_knowledge(doc_texts, max_concepts_per_doc=8, max_global_concepts=250):
         })
     topics.sort(key=lambda t: (-t['size'], t['name']))
 
+    # god-nodes: the most-connected concepts — the ideas the most documents flow
+    # through. (Graphify's "god nodes", for the knowledge graph.)
+    god_nodes = [{'concept': c, 'docs': len(concept_docs[c])}
+                 for c in sorted(concepts, key=lambda c: (-len(concept_docs[c]), c))
+                 if len(concept_docs[c]) >= 2][:15]
+
     return {
         'concepts': concepts,
         'doc_concepts': doc_concepts,
         'concept_docs': {c: sorted(concept_docs[c]) for c in concepts},
         'topics': topics,
+        'god_nodes': god_nodes,
     }
