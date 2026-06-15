@@ -54,7 +54,10 @@ DOC_EXTS = {'.md', '.mdx', '.markdown', '.txt', '.rst', '.adoc'}
 # not by nodo's core, so the core stays no-network / zero-dependency.
 ASSET_EXTS = {
     '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.svg',
-    '.pdf', '.mp4', '.mov', '.webm',
+    '.pdf', '.mp4', '.mov', '.webm', '.mp3', '.wav',
+    # documents that markitdown converts to Markdown (token-cheap for agents)
+    '.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls',
+    '.epub', '.rtf', '.odt', '.html', '.htm', '.csv', '.tsv',
 }
 
 # Extension priority for resolving collisions (two files share a path stem).

@@ -113,10 +113,14 @@ the payment flow?", "what does this diagram show?"):
    ```
 2. **Locate** the relevant sources with `--explain "<concept>"` (searches code +
    docs + PDF text).
-3. **Read and reason** over those sources to answer. For **images and PDFs**, open
-   the file directly and use your own vision — nodo links the asset to the nodes
-   that reference it (see `assets` in `nodo-context.json`) and extracts PDF text,
-   but the visual/semantic understanding is yours.
+3. **Read and reason** over those sources to answer. PDFs, Word/PowerPoint/Excel,
+   HTML and the like are **pre-converted to Markdown** at `.nodo/converted/…` —
+   **read that token-cheap `.md` instead of the raw document** (a PDF can cost
+   10–100× the tokens of its plain text). Each asset's `converted` path is in
+   `nodo-context.json` → `assets`. For **images** (and diagrams a converter can't
+   read), open the file and use your own vision — nodo links it to the nodes that
+   reference it. Install Microsoft `markitdown` (`pip install markitdown`, Python
+   3.10+) for the broadest conversion; PDFs convert via `pypdf` otherwise.
 4. Build the graph with PDFs/images included via `--full` (or `--multimodal`).
 
 `nodo-context.json` carries the full picture: `knowledge.topics`,
