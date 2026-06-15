@@ -23,7 +23,7 @@ from .render import render
 from .query import query_file, path_between, explain_concept
 from .symbols import query_symbol
 from .assets import link_assets, convert_assets
-from .hookinstall import emit_context, install_hook
+from .hookinstall import emit_context, install_hook, install_agents
 from .insights import entry_flows, sensitive_map, api_routes
 
 
@@ -58,6 +58,9 @@ def main(argv=None):
     parser.add_argument('--hook', action='store_true',
                         help="Install a Claude Code SessionStart hook so agents auto-load "
                              "the architecture map at session start. Then exit.")
+    parser.add_argument('--install', action='store_true',
+                        help="Wire the map into multiple AI assistants: Claude Code hook + "
+                             "Cursor rule + AGENTS.md (Codex/Windsurf/…). Then exit.")
     parser.add_argument('--emit-context', action='store_true',
                         help="Print the SessionStart JSON context envelope and exit "
                              "(this is what the installed hook runs).")
@@ -133,6 +136,12 @@ def main(argv=None):
         # launcher path = the nodo.py at the repo root (parent of this package)
         launcher = Path(__file__).resolve().parent.parent / 'nodo.py'
         print(install_hook(root, launcher))
+        return 0
+
+    if args.install:
+        launcher = Path(__file__).resolve().parent.parent / 'nodo.py'
+        print(install_hook(root, launcher))
+        print(install_agents(root, launcher))
         return 0
 
     if args.query:

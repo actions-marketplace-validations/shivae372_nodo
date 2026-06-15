@@ -103,3 +103,63 @@ def install_hook(project_root, nodo_launcher):
             f'  Command: {command}\n'
             '  Claude Code will now load the architecture map automatically at session start.\n'
             '  (Run a normal scan first so .nodo/nodo-context.md exists.)')
+
+
+_NODO_START = '<!-- nodo:start -->'
+_NODO_END = '<!-- nodo:end -->'
+
+
+def _agent_instructions(nodo_launcher):
+    launcher = str(Path(nodo_launcher).resolve()).replace('\\', '/')
+    return (
+        "## Codebase map (Nodo)\n\n"
+        "This repo has a Nodo map in `.nodo/`. Before grepping or reading files "
+        "to understand the code:\n\n"
+        "1. Read `.nodo/nodo-context.md` — token-cheap architecture + issues "
+        "(each issue has a confidence: act on `high` first).\n"
+        f"2. Blast radius / change-impact for a file or symbol: "
+        f"`python \"{launcher}\" . --query <path-or-symbol>`\n"
+        f"3. How does A reach B: `python \"{launcher}\" . --path <a> <b>`\n"
+        f"4. Where a concept lives (code + docs + PDFs): "
+        f"`python \"{launcher}\" . --explain \"<concept>\"`\n"
+        f"5. Doc/PDF knowledge topics: `python \"{launcher}\" . --topics`\n\n"
+        "Converted (token-cheap) Markdown for PDFs/Office files is in "
+        "`.nodo/converted/`. Full graph + issues: `.nodo/nodo-context.json`.\n"
+    )
+
+
+def _upsert_block(path, block):
+    """Idempotently insert/replace a sentinel-wrapped block in a file."""
+    section = f'{_NODO_START}\n{block}{_NODO_END}\n'
+    if path.exists():
+        text = path.read_text(encoding='utf-8', errors='ignore')
+        if _NODO_START in text and _NODO_END in text:
+            pre = text.split(_NODO_START)[0]
+            post = text.split(_NODO_END, 1)[1]
+            text = pre + section + post
+        else:
+            text = text.rstrip() + '\n\n' + section
+    else:
+        text = '# Agent guide\n\n' + section
+    path.write_text(text, encoding='utf-8')
+
+
+def install_agents(project_root, nodo_launcher):
+    """Wire the Nodo map into multiple AI assistants (not just Claude):
+    AGENTS.md (Codex / Windsurf / Amp / OpenCode / others) and a Cursor rule.
+    Idempotent. Returns a status string."""
+    project_root = Path(project_root)
+    block = _agent_instructions(nodo_launcher)
+    written = []
+
+    _upsert_block(project_root / 'AGENTS.md', block)
+    written.append('AGENTS.md (Codex/Windsurf/Amp/OpenCode/…)')
+
+    cursor_dir = project_root / '.cursor' / 'rules'
+    cursor_dir.mkdir(parents=True, exist_ok=True)
+    (cursor_dir / 'nodo.mdc').write_text(
+        '---\ndescription: Use the Nodo codebase map before exploring\n'
+        'alwaysApply: true\n---\n\n' + block, encoding='utf-8')
+    written.append('.cursor/rules/nodo.mdc (Cursor)')
+
+    return 'Installed Nodo agent instructions:\n  - ' + '\n  - '.join(written)

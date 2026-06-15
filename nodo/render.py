@@ -225,6 +225,7 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
         'knowledge': {
             'concepts': knowledge.get('concepts', []),
             'topics': knowledge.get('topics', []),
+            'god_nodes': knowledge.get('god_nodes', []),
         },
         # compact file + edge tables so `--query` can answer blast-radius
         # questions without re-scanning the project.
@@ -423,6 +424,11 @@ def _write_knowledge(out_dir, project_name, build_ts, knowledge):
          f'(deterministic). Ask the Claude skill to answer questions *semantically* '
          f'over this graph (and to read images/PDFs with vision).\n',
          f'\n{len(topics)} topic(s), {len(knowledge.get("concepts", []))} concept(s).\n']
+    god = knowledge.get('god_nodes', [])
+    if god:
+        k.append('\n## God-nodes (most-connected concepts — everything flows through these)\n')
+        for g in god:
+            k.append(f'- **{g["concept"]}** — referenced across {g["docs"]} doc(s)')
     for t in topics:
         k.append(f'\n## Topic: {t["name"]}  ({t["size"]} nodes)\n')
         if t.get('concepts'):

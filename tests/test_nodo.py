@@ -449,6 +449,31 @@ class TestKnowledgeGraph(unittest.TestCase):
         from nodo.knowledge import build_knowledge
         self.assertEqual(build_knowledge({})["topics"], [])
 
+    def test_god_nodes(self):
+        from nodo.knowledge import build_knowledge
+        k = build_knowledge({
+            "a.md": "token session login token session",
+            "b.md": "token session jwt token session",
+            "c.md": "token auth token session profile",
+        })
+        gods = {g["concept"] for g in k["god_nodes"]}
+        self.assertIn("token", gods)   # appears in all 3 docs → most-connected
+
+
+class TestInstall(unittest.TestCase):
+    def test_install_agents_writes_files_idempotently(self):
+        from nodo import hookinstall
+        d = make_project({"src/a.ts": "export const x=1\n"})
+        launcher = os.path.join(d, "nodo.py")
+        hookinstall.install_agents(d, launcher)
+        agents = Path(d) / "AGENTS.md"
+        rule = Path(d) / ".cursor" / "rules" / "nodo.mdc"
+        self.assertTrue(agents.exists() and rule.exists())
+        self.assertIn("Nodo", agents.read_text())
+        self.assertIn("alwaysApply", rule.read_text())
+        hookinstall.install_agents(d, launcher)           # run again
+        self.assertEqual(agents.read_text().count("<!-- nodo:start -->"), 1)  # no duplication
+
     def test_topics_cli(self):
         d = make_project({
             "src/a.ts": "export const x=1\n",
