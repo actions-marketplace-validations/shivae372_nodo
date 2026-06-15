@@ -166,6 +166,16 @@ python /path/to/nodo/nodo.py . --hook
 After that, regenerate the map with the skill whenever the code changes; the
 hook always serves the latest `.nodo/nodo-context.md`.
 
+## Live tools via MCP (optional)
+
+Nodo can also run as an MCP server so you can call it as **tools mid-session**
+(not just read the context file at the start): `python /path/to/nodo/nodo.py --mcp .`
+(needs `pip install mcp`). It exposes `nodo_ask`, `nodo_blast_radius`,
+`nodo_who_uses`, `nodo_path`, `nodo_explain`, `nodo_list_issues`, `nodo_hubs`,
+`nodo_topics`, `nodo_overview`, and `nodo_refresh`. `nodo.py . --install` registers
+it in `.mcp.json`. Same rule applies: these are fast offline *evidence* — you read
+the result and tell the user the correct part.
+
 ## Notes
 
 - Nodo is pure standard-library Python (3.8+). No pip install or npm needed.

@@ -163,3 +163,31 @@ def install_agents(project_root, nodo_launcher):
     written.append('.cursor/rules/nodo.mdc (Cursor)')
 
     return 'Installed Nodo agent instructions:\n  - ' + '\n  - '.join(written)
+
+
+def install_mcp(project_root, nodo_launcher):
+    """Register the nodo MCP server in `.mcp.json` (read by Claude Code, Cursor, and
+    other MCP clients), merging into any existing config. Idempotent. Returns status."""
+    import json
+    project_root = Path(project_root)
+    launcher = str(Path(nodo_launcher).resolve()).replace('\\', '/')
+    p = project_root / '.mcp.json'
+    cfg = {}
+    if p.exists():
+        try:
+            cfg = json.loads(p.read_text(encoding='utf-8', errors='ignore'))
+        except Exception:
+            cfg = {}
+    if not isinstance(cfg, dict):
+        cfg = {}
+    servers = cfg.get('mcpServers')
+    if not isinstance(servers, dict):
+        servers = {}
+    servers['nodo'] = {'command': 'python', 'args': [launcher, '--mcp', '.']}
+    cfg['mcpServers'] = servers
+    try:
+        p.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
+        return ('.mcp.json — registered the "nodo" MCP server for Claude Code / Cursor. '
+                'Needs: pip install mcp')
+    except Exception as e:
+        return f'could not write .mcp.json: {e}'

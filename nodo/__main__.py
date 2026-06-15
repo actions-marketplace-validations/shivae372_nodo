@@ -23,7 +23,7 @@ from .render import render
 from .query import query_file, path_between, explain_concept
 from .symbols import query_symbol
 from .assets import link_assets, convert_assets
-from .hookinstall import emit_context, install_hook, install_agents
+from .hookinstall import emit_context, install_hook, install_agents, install_mcp
 from .insights import entry_flows, sensitive_map, api_routes
 
 
@@ -84,6 +84,9 @@ def main(argv=None):
                         help='Deepest scan: shortcut for --ast --multimodal.')
     parser.add_argument('--benchmark', action='store_true',
                         help='Compare regex vs tree-sitter parsing (timing + edges) and exit.')
+    parser.add_argument('--mcp', action='store_true',
+                        help='Run nodo as an MCP server (stdio) — exposes its query tools to '
+                             'agents mid-session. Needs: pip install mcp')
     parser.add_argument('--multimodal', action='store_true',
                         help='Include images / PDFs / video as assets linked to the nodes near '
                              'them (contents are read by the Claude skill, not nodo).')
@@ -131,6 +134,10 @@ def main(argv=None):
     if args.benchmark:
         return _run_benchmark(root, out_dir, cfg, args)
 
+    if args.mcp:
+        from . import serve as _serve
+        return _serve.serve(str(root), str(out_dir))
+
     if args.emit_context:
         # invoked by the Claude Code hook — print JSON envelope, nothing else.
         emit_context(out_dir)
@@ -146,6 +153,7 @@ def main(argv=None):
         launcher = Path(__file__).resolve().parent.parent / 'nodo.py'
         print(install_hook(root, launcher))
         print(install_agents(root, launcher))
+        print(install_mcp(root, launcher))
         return 0
 
     if args.query:

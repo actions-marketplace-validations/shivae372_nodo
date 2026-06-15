@@ -903,5 +903,46 @@ class TestPersonalization(unittest.TestCase):
         self.assertGreaterEqual(freq.get("src/db.ts", 0), 3)
 
 
+# ── MCP server (tool logic testable without the mcp package) ──────────────────
+class TestMCPServer(unittest.TestCase):
+    def _state(self):
+        from nodo import serve
+        d = make_project({
+            "src/db.ts": "export function query(s){ return s; }\nexport function connect(){ return 1; }\n",
+            "src/svc.ts": "import {query} from './db';\nexport function getUser(id){ return query('x'); }\n",
+            "src/api.ts": "import {getUser} from './svc';\nexport const route = () => getUser(1);\n",
+            "src/main.ts": "import './api';\nconsole.log('boot');\n",
+        })
+        return serve._State(d)
+
+    def test_tools_dispatch(self):
+        from nodo import serve
+        st = self._state()
+        self.assertIn("DEPENDENTS", serve.dispatch(st, "nodo_blast_radius", {"file": "src/db.ts"}))
+        self.assertIn("getUser", serve.dispatch(st, "nodo_who_uses", {"symbol": "getUser"}))
+        self.assertIn("reaches", serve.dispatch(st, "nodo_path", {"a": "src/svc.ts", "b": "src/db.ts"}))
+        self.assertIn("overview", serve.dispatch(st, "nodo_ask", {"question": "what does this do"}).lower())
+        self.assertIsInstance(serve.dispatch(st, "nodo_overview", {}), str)
+        self.assertIn("Unknown tool", serve.dispatch(st, "bogus", {}))
+        self.assertEqual(len(serve.tool_specs()), 10)
+
+    def test_serve_without_mcp_is_graceful(self):
+        from nodo import serve
+        try:
+            import mcp  # noqa: F401
+            self.skipTest("mcp is installed in this env")
+        except Exception:
+            pass
+        self.assertEqual(serve.serve(make_project({"a.py": "x=1\n"})), 1)
+
+    def test_install_mcp_registers_server(self):
+        from nodo import hookinstall
+        d = make_project({"src/a.ts": "export const x=1;\n"})
+        hookinstall.install_mcp(d, os.path.join(d, "nodo.py"))
+        cfg = json.loads((Path(d) / ".mcp.json").read_text())
+        self.assertIn("nodo", cfg["mcpServers"])
+        self.assertIn("--mcp", cfg["mcpServers"]["nodo"]["args"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
