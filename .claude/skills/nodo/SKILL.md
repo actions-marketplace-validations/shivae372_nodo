@@ -96,6 +96,33 @@ Tell the user:
   flows + sensitive surfaces, and every issue with line number + snippet.
 - The issues are already deduped and severity-sorted; treat `error` first.
 
+## Multimodal knowledge graph & AI queries
+
+Nodo turns the project's docs and PDFs into a **knowledge graph**: it mines
+concepts, clusters them into **topics (communities)**, and links docs/PDFs ↔
+concepts ↔ code in one graph. Nodo builds this deterministically and offline;
+**you (Claude) are the AI query layer** on top.
+
+To answer a semantic question about the project ("how does auth work?", "what's
+the payment flow?", "what does this diagram show?"):
+
+1. **Orient with topics** — read `.nodo/nodo-knowledge.md` (topics + their
+   concepts + source docs/PDFs) or run:
+   ```bash
+   python /path/to/nodo/nodo.py . --topics --full
+   ```
+2. **Locate** the relevant sources with `--explain "<concept>"` (searches code +
+   docs + PDF text).
+3. **Read and reason** over those sources to answer. For **images and PDFs**, open
+   the file directly and use your own vision — nodo links the asset to the nodes
+   that reference it (see `assets` in `nodo-context.json`) and extracts PDF text,
+   but the visual/semantic understanding is yours.
+4. Build the graph with PDFs/images included via `--full` (or `--multimodal`).
+
+`nodo-context.json` carries the full picture: `knowledge.topics`,
+`knowledge.concepts`, the `concept`/`doc`/`asset` nodes, and `kind:"reference"`
+edges connecting them.
+
 ## Optional: auto-load the map every session
 
 Run once per project to install a Claude Code SessionStart hook so the map is

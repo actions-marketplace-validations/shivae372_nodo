@@ -310,6 +310,7 @@ nodo [PATH] [options]
   --query FILE|SYMBOL  blast radius for a file, or definition+references for a symbol
   --path A B           show the import chain connecting two files
   --explain CONCEPT    find the files & design docs related to a concept (BM25)
+  --topics             print knowledge-graph topics (doc/PDF communities), then exit
   --hook               install a Claude Code SessionStart hook, then exit
   --include-vendor     also analyse reference/vendored/example dirs
   --multimodal         link images/PDFs/video to the nodes near them
@@ -359,6 +360,30 @@ image pixels itself — it locates each asset and wires it to the right nodes, a
 the Claude skill reads the image/PDF with Claude's own vision when you ask. Local
 PDF *text* extraction kicks in automatically when `pypdf` is installed (still
 fully offline); without it, PDFs are still indexed and linked.
+
+### Knowledge graph (docs + PDFs → topics, queryable by AI)
+
+Beyond linking, Nodo mines the **content** of your docs and PDFs into a knowledge
+graph: it extracts **concepts** (the shared, salient vocabulary), clusters
+docs+concepts into **topics** (the same community detection used for code
+modules), and adds `concept` nodes connected to the docs that cover them.
+
+```bash
+python nodo.py . --topics --full      # list the topics (communities)
+```
+```
+Knowledge topics (2) — communities of docs/PDFs:
+  • token: token, login, session, auth, jwt, logout   [auth.md, auth-design.md]
+  • stripe: stripe, charge, invoices, monthly, payments   [payments-spec.pdf, payments.md]
+```
+
+The full graph is in `nodo-context.json` → `knowledge` (`concepts` + `topics`),
+mirrored in `nodo-knowledge.md`. Nodo builds this **deterministically and
+offline**; the *semantic* layer — "how does auth actually work?", reading a
+diagram — is answered by the **Claude skill** on top (vision + reasoning over the
+graph). That's the division of labour: Nodo is the fast, private scaffold; Claude
+is the intelligence. `--explain "<concept>"` searches code + docs + PDF text to
+locate sources for those answers.
 
 ## Parsing: regex by default, tree-sitter automatically
 

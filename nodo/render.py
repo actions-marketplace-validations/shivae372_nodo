@@ -27,6 +27,7 @@ CAT_STYLE = {
     'test':      {'bg': '#22c55e', 'bd': '#15803d', 'name': 'Test'},
     'doc':       {'bg': '#0ea5e9', 'bd': '#0369a1', 'name': 'Doc / Spec'},
     'asset':     {'bg': '#f97316', 'bd': '#c2410c', 'name': 'Asset (image/PDF/video)'},
+    'concept':   {'bg': '#eab308', 'bd': '#a16207', 'name': 'Concept (knowledge)'},
     'other':     {'bg': '#94a3b8', 'bd': '#64748b', 'name': 'Other'},
 }
 
@@ -42,7 +43,7 @@ def _sev_size(d):
 def render(out_dir, project_name, abs_root, nodes, edges, communities,
            comm_summaries, issues, community_names=None,
            flows=None, sensitive=None, apis=None, docs=None, assets=None,
-           diagnostics=None, parser=None):
+           diagnostics=None, parser=None, knowledge=None):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     community_names = community_names or {}
@@ -52,6 +53,7 @@ def render(out_dir, project_name, abs_root, nodes, edges, communities,
     docs = docs or {}
     assets = assets or []
     diagnostics = diagnostics or {}
+    knowledge = knowledge or {}
 
     build_date = datetime.date.today().isoformat()
     build_ts = datetime.datetime.now().isoformat(timespec='seconds')
@@ -97,7 +99,7 @@ def render(out_dir, project_name, abs_root, nodes, edges, communities,
     # ── artifacts: JSON + MD + TXT ──
     _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
                      comm_display, issues, hub_list, deg, rank_of, flows, sensitive, apis,
-                     docs, assets, diagnostics, parser)
+                     docs, assets, diagnostics, parser, knowledge)
 
     # ── vis nodes/edges ──
     vis_nodes = _build_vis_nodes(nodes, deg, rank_of, communities, issue_by_file)
@@ -178,13 +180,14 @@ def _build_vis_nodes(nodes, deg, rank_of, communities, issue_by_file):
 def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
                      comm_display, issues, hub_list, deg, rank_of,
                      flows=None, sensitive=None, apis=None, docs=None, assets=None,
-                     diagnostics=None, parser=None):
+                     diagnostics=None, parser=None, knowledge=None):
     flows = flows or []
     sensitive = sensitive or []
     apis = apis or []
     docs = docs or {}
     assets = assets or []
     diagnostics = diagnostics or {}
+    knowledge = knowledge or {}
     n_err = sum(1 for x in issues if x['severity'] == 'error')
     n_warn = sum(1 for x in issues if x['severity'] == 'warn')
     n_info = sum(1 for x in issues if x['severity'] == 'info')
@@ -218,6 +221,11 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
         # manifest linking images/PDFs/video to the nodes that reference them.
         'docs': sorted(docs.keys()),
         'assets': assets,
+        # knowledge graph over docs/PDFs: concepts + topic communities
+        'knowledge': {
+            'concepts': knowledge.get('concepts', []),
+            'topics': knowledge.get('topics', []),
+        },
         # compact file + edge tables so `--query` can answer blast-radius
         # questions without re-scanning the project.
         'files': [
@@ -280,6 +288,16 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
             ref = ', '.join(f'`{r}`' for r in a.get('referenced_by', [])[:3]) or '—'
             md.append(f'- `{a["rel"]}` ({a["type"]}) — referenced by: {ref}')
 
+    if knowledge.get('topics'):
+        md.append('\n## Knowledge graph — topics from docs & PDFs\n')
+        md.append('Document/PDF content mined into concepts and clustered into topics '
+                  '(communities). Use `--explain "<concept>"` to locate, then read the '
+                  'source for the AI answer. Full detail in `nodo-knowledge.md`.\n')
+        for t in knowledge['topics'][:12]:
+            cs = ', '.join(t['concepts'][:6])
+            ds = ', '.join(d.split('/')[-1] for d in t['docs'][:4])
+            md.append(f'- **{t["name"]}** — concepts: {cs}' + (f' · docs: {ds}' if ds else ''))
+
     md.append('\n## Modules\n')
     md.append('| # | Name | Size |')
     md.append('|---|---|---|')
@@ -318,6 +336,10 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
     _write_report(out_dir, project_name, build_ts, nodes, edges, communities,
                   comm_display, issues, hub_list, flows, sensitive,
                   n_err, n_warn, n_info)
+
+    # ── Knowledge graph artifact (topics/concepts from docs + PDFs) ──
+    if knowledge.get('topics') or knowledge.get('concepts'):
+        _write_knowledge(out_dir, project_name, build_ts, knowledge)
 
 
 def _write_report(out_dir, project_name, build_ts, nodes, edges, communities,
@@ -389,6 +411,29 @@ def _write_report(out_dir, project_name, build_ts, nodes, edges, communities,
              'snippet) see `nodo-context.json`. For blast-radius and path queries '
              'run `nodo.py . --query <file>` or `--path <a> <b>`.*\n')
     (out_dir / 'nodo-report.md').write_text('\n'.join(r) + '\n', encoding='utf-8')
+
+
+def _write_knowledge(out_dir, project_name, build_ts, knowledge):
+    """Write nodo-knowledge.md — the multimodal knowledge graph for AI agents:
+    topics (communities), their concepts, and the docs/PDFs in each."""
+    topics = knowledge.get('topics', [])
+    concept_docs = knowledge.get('concept_docs', {})
+    k = [f'# {project_name} — Knowledge Graph\n',
+         f'> Generated {build_ts} by Nodo. Concepts + topics mined from docs & PDFs '
+         f'(deterministic). Ask the Claude skill to answer questions *semantically* '
+         f'over this graph (and to read images/PDFs with vision).\n',
+         f'\n{len(topics)} topic(s), {len(knowledge.get("concepts", []))} concept(s).\n']
+    for t in topics:
+        k.append(f'\n## Topic: {t["name"]}  ({t["size"]} nodes)\n')
+        if t.get('concepts'):
+            k.append('- **Concepts**: ' + ', '.join(t['concepts']))
+        if t.get('docs'):
+            k.append('- **Sources**: ' + ', '.join(f'`{d}`' for d in t['docs']))
+    if concept_docs:
+        k.append('\n## Concept → sources\n')
+        for c in sorted(concept_docs)[:60]:
+            k.append(f'- **{c}**: ' + ', '.join(f'`{d}`' for d in concept_docs[c][:6]))
+    (out_dir / 'nodo-knowledge.md').write_text('\n'.join(k) + '\n', encoding='utf-8')
 
 
 # The big HTML template lives in template.py to keep this file readable.
