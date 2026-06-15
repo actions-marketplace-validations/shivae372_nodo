@@ -18,6 +18,85 @@ import os
 import re
 from pathlib import Path
 
+# File types worth converting to Markdown for token-cheap reading + knowledge
+# ingestion. markitdown covers all of these on Python 3.10+; pypdf covers PDF
+# everywhere. Plain-text formats are read directly.
+CONVERTIBLE_EXTS = {
+    '.pdf', '.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls',
+    '.html', '.htm', '.epub', '.csv', '.tsv', '.json', '.xml', '.rtf', '.odt',
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp',
+}
+
+
+def markitdown_available():
+    """True if Microsoft markitdown is importable (Python 3.10+). Never raises."""
+    try:
+        from markitdown import MarkItDown  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def convert_to_markdown(abs_path, max_chars=200000):
+    """Convert a file to Markdown TEXT so an agent can read it cheaply instead of
+    burning tokens on the raw binary (a PDF costs far more tokens than its text).
+
+    Tries markitdown first (broad: PDF/Word/PowerPoint/Excel/HTML/images/…), then
+    falls back to pypdf for PDFs, then to reading plain-text formats directly.
+    Returns markdown text, or None. Never raises, never networks."""
+    p = str(abs_path)
+    ext = os.path.splitext(p)[1].lower()
+    # 1) markitdown — the broad converter (optional, Python 3.10+)
+    try:
+        from markitdown import MarkItDown
+        res = MarkItDown().convert(p)
+        text = (getattr(res, 'text_content', '') or '').strip()
+        if text:
+            return text[:max_chars]
+    except Exception:
+        pass
+    # 2) PDF fallback via pypdf (works everywhere)
+    if ext == '.pdf':
+        t = extract_pdf_text(abs_path, max_chars=max_chars)
+        if t:
+            return t
+    # 3) plain-text-ish formats: read directly
+    if ext in ('.html', '.htm', '.csv', '.tsv', '.json', '.xml'):
+        try:
+            t = Path(p).read_text(encoding='utf-8', errors='ignore').strip()
+            return t[:max_chars] or None
+        except Exception:
+            return None
+    return None
+
+
+def convert_assets(root, out_dir, assets, doc_texts):
+    """For each convertible asset: convert to Markdown, SAVE it to
+    <out_dir>/converted/ (so Claude Code reads the cheap .md, not the raw file),
+    PIN the converted path onto the asset, and FOLD its text into the knowledge
+    corpus. Returns the number of assets converted. Mutates assets + doc_texts."""
+    root, out_dir = Path(root), Path(out_dir)
+    conv_dir = out_dir / 'converted'
+    n = 0
+    for a in assets:
+        ext = os.path.splitext(a['rel'])[1].lower()
+        if ext not in CONVERTIBLE_EXTS:
+            continue
+        md = convert_to_markdown(str(root / a['rel']))
+        if not md:
+            continue
+        flat = a['rel'].replace('\\', '/').replace('/', '__') + '.md'
+        try:
+            conv_dir.mkdir(parents=True, exist_ok=True)
+            (conv_dir / flat).write_text(md, encoding='utf-8')
+            a['converted'] = 'converted/' + flat        # path under .nodo/ — read this, not the raw file
+            a['converted_chars'] = len(md)
+            doc_texts[a['rel']] = md                    # feed the knowledge graph
+            n += 1
+        except Exception:
+            continue
+    return n
+
 
 def extract_pdf_text(abs_path, max_chars=20000):
     """Best-effort local PDF text via optional `pypdf`/`PyPDF2`. Returns text or

@@ -357,9 +357,25 @@ set (with `kind`) is in `nodo-context.json`.
 
 Nodo's core never sends anything over the network, so it does not *interpret*
 image pixels itself — it locates each asset and wires it to the right nodes, and
-the Claude skill reads the image/PDF with Claude's own vision when you ask. Local
-PDF *text* extraction kicks in automatically when `pypdf` is installed (still
-fully offline); without it, PDFs are still indexed and linked.
+the Claude skill reads the image/PDF with Claude's own vision when you ask.
+
+### Convert-to-Markdown (save your agent's tokens)
+
+PDFs, Word/PowerPoint/Excel, HTML, and more are **converted to Markdown once** and
+saved under `.nodo/converted/` — so your agent reads the cheap `.md` instead of
+the raw document (a PDF can cost 10–100× the tokens of its text). Each asset's
+`converted` path is recorded in `nodo-context.json` → `assets`, and the converted
+text is folded into the knowledge graph (so PDFs/Office docs contribute concepts
+and topics, not just a filename link).
+
+```bash
+pip install markitdown          # broad conversion: PDF/Word/PPT/Excel/HTML/images (Python 3.10+)
+python nodo.py . --full
+```
+
+Conversion uses Microsoft **markitdown** when installed (widest format support),
+and falls back to **pypdf** for PDFs (and direct reads for HTML/CSV) otherwise —
+all fully offline. Images stay linked for Claude's vision to interpret.
 
 ### Knowledge graph (docs + PDFs → topics, queryable by AI)
 

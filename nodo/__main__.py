@@ -22,7 +22,7 @@ from .config import load_config, write_sample_config
 from .render import render
 from .query import query_file, path_between, explain_concept
 from .symbols import query_symbol
-from .assets import link_assets, attach_pdf_text
+from .assets import link_assets, convert_assets
 from .hookinstall import emit_context, install_hook
 from .insights import entry_flows, sensitive_map, api_routes
 
@@ -334,15 +334,13 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
         raw = discover_assets(root, ignore_dirs)
         assets = link_assets(root, raw, nodes, docs,
                              include_reference=getattr(args, 'include_vendor', False))
-        assets, n_pdf = attach_pdf_text(root, assets)
-        from .assets import extract_pdf_text
-        for a in assets:                         # fold full PDF text into the corpus
-            if a['type'] == 'pdf':
-                t = extract_pdf_text(str(root / a['rel']))
-                if t:
-                    doc_texts[a['rel']] = t
-        extra = f', {n_pdf} PDF(s) text-extracted' if n_pdf else ''
-        print(f'  {len(docs)} docs indexed, {len(assets)} assets linked to nodes{extra}')
+        # Convert PDFs/Office/HTML/images → Markdown (saved under .nodo/converted/),
+        # pin the converted path onto each asset, and fold the text into the
+        # knowledge corpus. Claude reads the cheap .md instead of the raw file.
+        n_conv = convert_assets(root, out_dir, assets, doc_texts)
+        if not quiet:
+            extra = f', {n_conv} converted → Markdown (token-cheap)' if n_conv else ''
+            print(f'  {len(docs)} docs indexed, {len(assets)} assets linked{extra}')
     elif not quiet and docs:
         print(f'  {len(docs)} docs indexed')
 

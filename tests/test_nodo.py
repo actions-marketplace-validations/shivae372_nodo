@@ -461,6 +461,38 @@ class TestKnowledgeGraph(unittest.TestCase):
         self.assertIn("Knowledge topics", r.stdout)
 
 
+class TestConversion(unittest.TestCase):
+    def test_convert_to_markdown_plain_text(self):
+        from nodo import assets as A
+        d = make_project({"x.html": "<h1>Title</h1><p>Hello world quarterly report</p>"})
+        md = A.convert_to_markdown(os.path.join(d, "x.html"))
+        self.assertIsNotNone(md)
+        self.assertIn("Hello world", md)
+
+    def test_convert_assets_saves_pins_and_ingests(self):
+        # a convertible asset → saved .md under .nodo/converted/, pinned on the
+        # asset, and its text folded into the knowledge corpus (token-cheap path).
+        from nodo import scanner, assets as A
+        d = make_project({
+            "docs/readme.md": "the data table is attached\n",
+            "docs/data.csv": "name,role\nalice,admin\nbob,user\n",
+        })
+        out = Path(d) / ".nodo"
+        out.mkdir(exist_ok=True)
+        nodes, _, _ = scanner.build_graph(d)
+        docs = scanner.discover_docs(d, scanner.DEFAULT_IGNORE_DIRS)
+        raw = scanner.discover_assets(d, scanner.DEFAULT_IGNORE_DIRS)
+        linked = A.link_assets(d, raw, nodes, docs)
+        doc_texts = dict(docs)
+        n = A.convert_assets(d, out, linked, doc_texts)
+        self.assertGreaterEqual(n, 1)
+        csv = next(a for a in linked if a["rel"].endswith("data.csv"))
+        self.assertIn("converted", csv)
+        self.assertTrue((out / csv["converted"]).exists())
+        self.assertIn("docs/data.csv", doc_texts)
+        self.assertIn("alice", doc_texts["docs/data.csv"])
+
+
 class TestConfidence(unittest.TestCase):
     def test_every_issue_has_confidence(self):
         issues = detectors.detect_all(*graph({
