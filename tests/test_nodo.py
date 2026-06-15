@@ -518,6 +518,28 @@ class TestConversion(unittest.TestCase):
         self.assertIn("alice", doc_texts["docs/data.csv"])
 
 
+class TestVisionLoop(unittest.TestCase):
+    def test_agent_vision_description_is_ingested(self):
+        # An image can't be text-converted, but if an agent's vision wrote a
+        # description into .nodo/converted/, nodo preserves it and folds it into
+        # the knowledge corpus (image understanding entering the graph, offline).
+        from nodo import scanner, assets as A
+        d = make_project({"docs/readme.md": "see the diagram for the flow\n"})
+        Path(d, "docs/diagram.png").write_bytes(b"\x89PNG\r\n fake")
+        out = Path(d) / ".nodo"
+        (out / "converted").mkdir(parents=True, exist_ok=True)
+        (out / "converted" / "docs__diagram.png.md").write_text(
+            "Architecture diagram: the auth service calls the database layer.")
+        nodes, _, _ = scanner.build_graph(d)
+        docs = scanner.discover_docs(d, scanner.DEFAULT_IGNORE_DIRS)
+        raw = scanner.discover_assets(d, scanner.DEFAULT_IGNORE_DIRS)
+        linked = A.link_assets(d, raw, nodes, docs)
+        doc_texts = dict(docs)
+        A.convert_assets(d, out, linked, doc_texts)
+        self.assertIn("docs/diagram.png", doc_texts)
+        self.assertIn("auth service", doc_texts["docs/diagram.png"])
+
+
 class TestConfidence(unittest.TestCase):
     def test_every_issue_has_confidence(self):
         issues = detectors.detect_all(*graph({

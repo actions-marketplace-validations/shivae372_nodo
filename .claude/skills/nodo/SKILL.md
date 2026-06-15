@@ -118,9 +118,13 @@ the payment flow?", "what does this diagram show?"):
    **read that token-cheap `.md` instead of the raw document** (a PDF can cost
    10–100× the tokens of its plain text). Each asset's `converted` path is in
    `nodo-context.json` → `assets`. For **images** (and diagrams a converter can't
-   read), open the file and use your own vision — nodo links it to the nodes that
-   reference it. Install Microsoft `markitdown` (`pip install markitdown`, Python
-   3.10+) for the broadest conversion; PDFs convert via `pypdf` otherwise.
+   read), open the file and use your own **vision**, then SAVE a 2–3 sentence
+   description to `.nodo/converted/<rel-with-/-as-__>.md` (e.g. `docs/arch.png` →
+   `.nodo/converted/docs__arch.png.md`). Nodo preserves that file and folds it into
+   the knowledge graph on the next scan — your visual understanding becomes a
+   pinned, queryable node while the core stays offline. Install Microsoft
+   `markitdown` (`pip install markitdown`, Python 3.10+) for the broadest text
+   conversion; PDFs convert via `pypdf` otherwise.
 4. Build the graph with PDFs/images included via `--full` (or `--multimodal`).
 
 `nodo-context.json` carries the full picture: `knowledge.topics`,

@@ -82,13 +82,24 @@ def convert_assets(root, out_dir, assets, doc_texts):
         ext = os.path.splitext(a['rel'])[1].lower()
         if ext not in CONVERTIBLE_EXTS:
             continue
+        flat = a['rel'].replace('\\', '/').replace('/', '__') + '.md'
+        target = conv_dir / flat
         md = convert_to_markdown(str(root / a['rel']))
+        if not md and target.exists():
+            # No text conversion (e.g. an image/diagram), but a description was
+            # written here by an agent's VISION — Claude Code reads the file and
+            # saves what it sees. Preserve it and fold it into the knowledge graph:
+            # this is how image/diagram understanding enters the graph, offline.
+            try:
+                md = target.read_text(encoding='utf-8', errors='ignore').strip() or None
+            except Exception:
+                md = None
         if not md:
             continue
-        flat = a['rel'].replace('\\', '/').replace('/', '__') + '.md'
         try:
             conv_dir.mkdir(parents=True, exist_ok=True)
-            (conv_dir / flat).write_text(md, encoding='utf-8')
+            if not target.exists() or target.read_text(encoding='utf-8', errors='ignore') != md:
+                target.write_text(md, encoding='utf-8')
             a['converted'] = 'converted/' + flat        # path under .nodo/ — read this, not the raw file
             a['converted_chars'] = len(md)
             doc_texts[a['rel']] = md                    # feed the knowledge graph
