@@ -229,6 +229,12 @@ false positives:
 **Broken contracts** — a symbol imported by one file that its source no longer
 exports (a rename/removal that breaks the importer at build time). Now follows
 `export * from` barrels, so re-exported symbols are no longer falsely flagged.
+**Argument-count drift** *(tree-sitter mode only)* — a call that passes more
+arguments than the imported function declares. Both the signature and the call's
+argument count come from the parse tree (rest params, optional params, and spread
+calls are handled), so it's false-positive-safe — verified to flag zero on
+click/express/hono. In regex mode it stays **off** by design (regex can't count
+args safely).
 **Import cycles** — real runtime circular imports (type-only imports excluded).
 **Disconnected features** — a file with real surface area (many exports / lots
 of code) that *nothing* in the project imports and whose name appears in no

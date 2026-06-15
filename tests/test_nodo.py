@@ -449,6 +449,72 @@ class TestNewDetectors(unittest.TestCase):
                         "blocks differing only in literals should still be duplication")
 
 
+# ── AST-backed arg-count contract (only runs in AST mode) ─────────────────────
+class TestArgMismatchAST(unittest.TestCase):
+    def _types(self, files):
+        from nodo import ast_index
+        if not ast_index.available():
+            self.skipTest("tree-sitter not installed")
+        scanner.enable_ast()
+        try:
+            d, nodes, edges, texts = graph(files)
+            return [i["type"] for i in detectors.detect_all(nodes, edges, texts)]
+        finally:
+            scanner._USE_AST = False
+
+    def test_too_many_args_flagged(self):
+        types = self._types({
+            "src/lib.ts": "export function add(a, b){ return a + b; }\n",
+            "src/use.ts": "import {add} from './lib';\nexport const r = () => add(1, 2, 3);\n",
+            "src/main.ts": "import './use';\n",
+        })
+        self.assertTrue(any("Call passes" in t for t in types))
+
+    def test_rest_param_not_flagged(self):
+        types = self._types({
+            "src/lib.ts": "export function logme(...xs){ return xs; }\n",
+            "src/use.ts": "import {logme} from './lib';\nexport const r = () => logme(1,2,3,4,5);\n",
+            "src/main.ts": "import './use';\n",
+        })
+        self.assertFalse(any("Call passes" in t for t in types))
+
+    def test_optional_param_not_flagged(self):
+        types = self._types({
+            "src/lib.ts": "export function greet(a, b?){ return a; }\n",
+            "src/use.ts": "import {greet} from './lib';\nexport const r = () => greet(1, 2);\n",
+            "src/main.ts": "import './use';\n",
+        })
+        self.assertFalse(any("Call passes" in t for t in types))
+
+    def test_method_call_not_flagged(self):
+        types = self._types({
+            "src/lib.ts": "export function add(a, b){ return a + b; }\n",
+            "src/use.ts": "import {add} from './lib';\nexport const r = (o) => o.add(1,2,3,4);\n",
+            "src/main.ts": "import './use';\n",
+        })
+        self.assertFalse(any("Call passes" in t for t in types))
+
+    def test_comment_between_args_not_miscounted(self):
+        # a comment line inside the call must not be counted as an argument
+        types = self._types({
+            "src/lib.ts": "export function add(a, b){ return a + b; }\n",
+            "src/use.ts": ("import {add} from './lib';\n"
+                           "export const r = () => add(\n  1, // first\n  2\n);\n"),
+            "src/main.ts": "import './use';\n",
+        })
+        self.assertFalse(any("Call passes" in t for t in types))
+
+    def test_disabled_in_regex_mode(self):
+        # regex mode must NOT run arg-mismatch (regex arg-counting is unsafe)
+        d, nodes, edges, texts = graph({
+            "src/lib.ts": "export function add(a, b){ return a + b; }\n",
+            "src/use.ts": "import {add} from './lib';\nexport const r = () => add(1, 2, 3);\n",
+            "src/main.ts": "import './use';\n",
+        })
+        types = [i["type"] for i in detectors.detect_all(nodes, edges, texts)]  # _USE_AST False
+        self.assertFalse(any("Call passes" in t for t in types))
+
+
 # ── Optional tree-sitter AST backend (skips if not installed) ─────────────────
 class TestAST(unittest.TestCase):
     def test_ast_extracts_and_ignores_normal_calls(self):

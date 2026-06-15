@@ -178,9 +178,12 @@ def _call_arg_count(text, name):
     (so a single object/array argument counts as 1, not its inner commas)."""
     counts = []
     for m in re.finditer(rf'\b{re.escape(name)}\s*\(', text):
-        # skip definitions (preceded by function/def)
+        # skip definitions (preceded by function/def), method calls (obj.name()),
+        # and constructor calls (new Name()) — none are a plain call to the import.
         pre = text[max(0, m.start() - 12):m.start()]
         if re.search(r'(function|def)\s*$', pre):
+            continue
+        if pre.rstrip().endswith('.') or re.search(r'\bnew\s+$', pre):
             continue
         inner = _balanced_params(text, m.end() - 1)
         if inner is None:
@@ -510,6 +513,51 @@ def duplication_drift(nodes, file_texts, block=6, min_files=2):
     return issues[:15]  # cap noise
 
 
+def _arg_mismatch_ast(scope, file_texts, defs_by_file, id_to_rel, edges, ast_index):
+    """AST-backed: a call passes MORE positional args than the imported function
+    declares (and the function has no rest param). Both the signature and the
+    call's arg count come from tree-sitter, so template literals / nested literals
+    can't cause a miscount. Conservative: only named-imported, non-variadic targets;
+    spread calls and member/constructor calls are excluded by the AST extractors."""
+    issues = []
+    edge_targets = defaultdict(set)
+    for e in edges:
+        s, t = id_to_rel.get(e['source']), id_to_rel.get(e['target'])
+        if s and t:
+            edge_targets[s].add(t)
+    for n in scope:
+        rel = n['rel']
+        if not _is_js(rel):
+            continue
+        text = file_texts.get(rel, '')
+        if not text:
+            continue
+        calls = ast_index.extract_calls_ast(rel, text)
+        if not calls:
+            continue
+        named = {nm for nm, _s, _l, _t in _extract_named_imports(rel, text)}
+        for name, counts in calls.items():
+            if name not in named:
+                continue                       # only symbols explicitly imported here
+            sig = tgt_rel = None
+            for tgt in edge_targets.get(rel, set()):
+                meta = defs_by_file.get(tgt, {}).get(name)
+                if meta and meta.get('params') is not None:
+                    sig, tgt_rel = meta, tgt
+                    break
+            if not sig or sig.get('variadic') or sig['params'] == 0:
+                continue
+            for cnt in counts:
+                if cnt > sig['params']:
+                    issues.append(_mk(
+                        'warn', 'Contract', 'Call passes more args than defined', rel,
+                        f"`{name}()` is called with {cnt} arg(s) here but is defined with "
+                        f"{sig['params']} in `{tgt_rel}`. Cross-file signature drift an AI "
+                        f"editing one side won't catch.", ''))
+                    break
+    return issues
+
+
 # ── 6. Orphaned-but-substantial: the "broken feature" smell ───────────────────
 _ENTRYISH = re.compile(r'(index|main|app|__init__|setup|conftest|server|cli|'
                        r'page|layout|route|bootstrap|entry)\.', re.I)
@@ -634,21 +682,38 @@ def detect_cross_file(nodes, edges, file_texts, include_reference=False, soft_re
              if (include_reference or n.get('tier') != 'reference')
              and not _is_test(n['rel'])]
 
+    from . import scanner
+    use_ast = getattr(scanner, '_USE_AST', False)
+    ast_index = None
+    if use_ast:
+        from . import ast_index as _ai
+        ast_index = _ai
+
     defs_by_file = {}
     for n in scope:
-        t = file_texts.get(n['rel'], '')
-        if t and (_is_js(n['rel']) or _is_py(n['rel'])):
-            d = _extract_defs(n['rel'], t)
-            if d:
-                defs_by_file[n['rel']] = d
+        rel = n['rel']
+        t = file_texts.get(rel, '')
+        if not t or not (_is_js(rel) or _is_py(rel)):
+            continue
+        d = _extract_defs(rel, t)                      # regex baseline (names + some params)
+        if ast_index is not None:
+            sigs = ast_index.extract_signatures_ast(rel, t)
+            if sigs is not None:
+                for nm, meta in sigs.items():          # AST params/variadic are authoritative
+                    d[nm] = meta
+                for nm, line in (ast_index.extract_defs_ast(rel, t) or []):
+                    d.setdefault(nm, {'params': None, 'line': line})  # classes/consts → names
+        if d:
+            defs_by_file[rel] = d
 
     issues = []
     issues += broken_contracts(scope, edges, file_texts, defs_by_file, id_to_rel)
-    # NOTE: arg-count mismatch is intentionally NOT run. Regex can't reliably
-    # count args across real TypeScript (generics, multi-line object literals,
-    # optional/default/rest params) without a true parser, and false positives
-    # destroy trust. Kept in the module for opt-in / future AST-backed use.
-    # issues += arg_mismatches(scope, file_texts, defs_by_file, id_to_rel, edges)
+    # Arg-count mismatch runs ONLY in AST mode, using AST signatures AND AST
+    # call-argument counts on BOTH sides — regex miscounts args inside template
+    # literals / nested literals, which produced false positives. Accurate parse
+    # trees make it safe.
+    if use_ast:
+        issues += _arg_mismatch_ast(scope, file_texts, defs_by_file, id_to_rel, edges, ast_index)
     issues += missing_guard(scope, file_texts)
     issues += cycles(scope, edges, id_to_rel, file_texts)
     issues += orphans(scope, edges, file_texts, defs_by_file, id_to_rel)

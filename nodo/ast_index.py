@@ -200,3 +200,134 @@ def extract_defs_ast(rel, text):
         return out
     except Exception:
         return None
+
+
+def extract_calls_ast(rel, text):
+    """Return {name: [arg_count, ...]} for calls to a bare identifier (JS/TS only),
+    via tree-sitter, or None. Member calls (obj.f()), `new F()`, and calls using
+    spread (f(...args)) are excluded — counting those against a definition would be
+    unsound. Accurate counting here is what makes the arg-mismatch check reliable
+    (regex miscounts args inside template literals / nested literals)."""
+    ext = os.path.splitext(rel)[1].lower()
+    if ext not in _JS:
+        return None
+    parser = _get_parser(ext)
+    if parser is None:
+        return None
+    try:
+        src = text.encode('utf-8')
+        tree = parser.parse(src)
+
+        def txt(node):
+            return src[node.start_byte:node.end_byte].decode('utf-8', 'ignore')
+
+        def field(node, name):
+            try:
+                return node.child_by_field_name(name)
+            except Exception:
+                return None
+
+        from collections import defaultdict
+        calls = defaultdict(list)
+        for n in _walk(tree.root_node):
+            if n.type != 'call_expression':
+                continue
+            fn = field(n, 'function')
+            if fn is None or fn.type != 'identifier':
+                continue                                  # skip obj.f(), computed callees
+            args = field(n, 'arguments')
+            if args is None:
+                continue
+            cnt, spread = 0, False
+            for c in args.children:
+                if not c.is_named or c.type == 'comment':
+                    continue                       # skip punctuation and comments
+                if c.type == 'spread_element':
+                    spread = True
+                    break
+                cnt += 1
+            if not spread:
+                calls[txt(fn)].append(cnt)
+        return dict(calls)
+    except Exception:
+        return None
+
+
+_SIG_TYPES = {'function_declaration', 'generator_function_declaration',
+              'function_definition', 'method_definition'}
+
+
+def extract_signatures_ast(rel, text):
+    """Return {name: {params:int, variadic:bool, line:int}} for functions, via
+    tree-sitter, or None to fall back. `params` is the count of parameter slots
+    (excluding rest/`*args`/`**kwargs`); `variadic` is True when a rest parameter
+    is present (so callers can pass any number). This is what makes an arg-count
+    contract check SAFE — regex can't count TS params, a parse tree can."""
+    ext = os.path.splitext(rel)[1].lower()
+    parser = _get_parser(ext)
+    if parser is None:
+        return None
+    is_py = ext in _PY
+    try:
+        src = text.encode('utf-8')
+        tree = parser.parse(src)
+
+        def txt(node):
+            return src[node.start_byte:node.end_byte].decode('utf-8', 'ignore')
+
+        def field(node, name):
+            try:
+                return node.child_by_field_name(name)
+            except Exception:
+                return None
+
+        def count_params(params_node):
+            if params_node is None:
+                return 0, False
+            # single unparenthesized arrow parameter: `x => ...`
+            if not is_py and params_node.type in ('identifier', 'shorthand_property_identifier'):
+                return 1, False
+            count, variadic = 0, False
+            for c in params_node.children:
+                t = c.type
+                ctext = txt(c).strip()
+                if is_py:
+                    if t in ('list_splat_pattern', 'dictionary_splat_pattern') or ctext.startswith('*'):
+                        variadic = True
+                        continue
+                    if t in ('typed_default_parameter', 'typed_parameter',
+                             'identifier', 'default_parameter'):
+                        nm = ctext.split(':')[0].split('=')[0].strip()
+                        if nm in ('self', 'cls') or not nm:
+                            continue
+                        count += 1
+                else:
+                    if t in ('rest_pattern', 'rest_parameter') or ctext.startswith('...'):
+                        variadic = True
+                        continue
+                    if t in ('required_parameter', 'optional_parameter', 'identifier',
+                             'assignment_pattern', 'object_pattern', 'array_pattern'):
+                        count += 1
+            return count, variadic
+
+        sigs = {}
+        for n in _walk(tree.root_node):
+            t = n.type
+            name = params = None
+            if t in _SIG_TYPES:
+                nm = field(n, 'name')
+                name = txt(nm) if nm is not None else None
+                params = field(n, 'parameters')
+            elif t == 'variable_declarator':
+                val = field(n, 'value')
+                if val is not None and val.type in _FUNCY:
+                    nm = field(n, 'name')
+                    if nm is not None and nm.type == 'identifier':
+                        name = txt(nm)
+                        params = field(val, 'parameters') or field(val, 'parameter')
+            if name:
+                cnt, variadic = count_params(params)
+                sigs[name] = {'params': cnt, 'variadic': variadic, 'line': n.start_point[0] + 1}
+        return sigs
+    except Exception:
+        return None

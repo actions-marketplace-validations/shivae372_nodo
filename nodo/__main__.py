@@ -269,6 +269,9 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
     if not quiet:
         parser_label = 'tree-sitter' if scanner._USE_AST else 'regex'
         print(f'  {len(nodes)} files, {len(edges)} dependencies  [parser: {parser_label}]')
+        if len(nodes) > 5000:
+            print(f'  note: large repo ({len(nodes)} files) — the first scan does the work; '
+                  f'rescans reuse the cache. Use --no-ast for a faster (less precise) pass.')
         ch, pa = diag.get('cache_hits', 0), diag.get('parsed', 0)
         if ch:
             print(f'  cache: {ch} reused, {pa} parsed')
