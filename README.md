@@ -296,7 +296,9 @@ nodo [PATH] [options]
   --include-vendor     also analyse reference/vendored/example dirs
   --multimodal         link images/PDFs/video to the nodes near them
   --docs-only          index doc text but skip the multimodal asset pass
-  --ast                EXPERIMENTAL: use tree-sitter when installed (regex fallback)
+  --ast                require tree-sitter parsing (note + regex fallback if absent)
+  --no-ast             force the regex extractor even if tree-sitter is installed
+  --no-cache           disable the incremental parse cache
   --ignore DIR         extra directory to skip (repeatable)
   --no-gitignore       don't read .gitignore for ignore dirs
   --version
@@ -338,20 +340,35 @@ the Claude skill reads the image/PDF with Claude's own vision when you ask. Loca
 PDF *text* extraction kicks in automatically when `pypdf` is installed (still
 fully offline); without it, PDFs are still indexed and linked.
 
-## Optional: tree-sitter accuracy (`--ast`, experimental)
+## Parsing: regex by default, tree-sitter automatically
 
-Nodo defaults to a fast, dependency-free regex extractor. For deeper accuracy on
-large TypeScript/Python codebases you can opt into real parse trees:
+Out of the box Nodo uses a fast, **zero-dependency regex** extractor — clone and
+run, nothing to install. If you install tree-sitter, Nodo **uses it automatically**
+for higher-accuracy parsing (real parse trees ignore import-like strings in
+comments and tell a genuine `require(...)` from a function that's merely named
+`require`):
 
 ```bash
-pip install tree-sitter tree-sitter-language-pack
-python nodo.py . --ast
+pip install tree-sitter tree-sitter-language-pack    # opt-in accuracy
 ```
 
-The AST extractor uses real parse trees, so it ignores import-like strings in
-comments and distinguishes a genuine `require(...)` from an identically-named
-function call. If tree-sitter isn't installed, `--ast` prints a one-line note and
-silently uses the regex path — the zero-dependency promise is never broken.
+The scan prints which parser ran (`[parser: tree-sitter]` or `[parser: regex]`).
+Force either with `--ast` (require tree-sitter; note + regex fallback if absent)
+or `--no-ast` (always regex). The regex path stays fully supported — both are
+covered by the test suite.
+
+## Performance & caching
+
+- **Incremental parse cache** (`.nodo/cache.json`): each file's imports are cached
+  by mtime + size + parser mode, so a rescan only re-parses files that actually
+  changed. A cached run is **byte-identical** to a clean one; disable with
+  `--no-cache`.
+- **Bounded output**: no single detector emits more than 25 findings before
+  collapsing to a summary line, so the report stays readable on large repos.
+- **Nothing fails silently**: oversized/unreadable files are reported in the scan
+  output and in `nodo-context.json` → `diagnostics`.
+
+Indicative timings (regex, cold): ~63-file repo in ~0.7s, ~390-file repo in ~0.5s.
 
 ---
 
@@ -381,6 +398,37 @@ Copy it into your project's `.claude/skills/` and type `/nodo` to regenerate the
 map after a refactor. See the skill's `SKILL.md` for details.
 
 ---
+
+## Known limitations & accuracy
+
+Honest about where the heuristics stop:
+
+- **Extraction is regex by default** (tree-sitter when installed). Both resolve
+  relative/alias/dir-index imports and dynamic `import()`; deeply dynamic patterns
+  (fully computed string paths, framework auto-registration) can still miss an
+  edge. When unsure, the resolver stays silent rather than invent a phantom edge,
+  so you may occasionally see a real-but-unresolved import — not a wrong one.
+- **Detectors are heuristic**, deliberately tuned for *few false positives* over
+  completeness: cross-file checks suppress when confidence is low (e.g. `export *`
+  barrels, plugin/dynamic architectures), and every detector is capped so it can't
+  flood. That means some real issues won't be flagged — treat findings as
+  high-signal leads, not a complete audit.
+- **Deep language understanding is JS/TS + Python**; other languages resolve at
+  the file-dependency level only.
+- **Multimodal links, it doesn't *understand*.** Nodo connects assets/docs to the
+  code that references them; interpreting an image/PDF's contents is left to your
+  AI agent's own vision (PDF *text* extraction is available via optional `pypdf`).
+- **The viewer is force-directed**; very large graphs read better via
+  `nodo-context.json` + `--query`/`--explain` than the HTML canvas.
+- **Safety**: Nodo only reads files and makes no network calls, but it runs on
+  whatever you point it at — treat scanning untrusted code like opening it.
+
+## Roadmap
+
+- Symbol-level (not just file-level) cross-file contracts, AST-backed.
+- Viewer UX: search, module collapse, degree filtering for large graphs.
+- Incremental detection cache (today the parse step is cached; detection re-runs).
+- More cross-file detectors (data-flow-aware checks).
 
 ## Tests
 

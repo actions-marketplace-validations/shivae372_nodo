@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import __version__
 from . import scanner
+from . import cache as _cache
 from .scanner import build_graph, discover_docs, discover_assets
 from .clustering import detect_communities, community_summaries
 from .detectors import detect_all
@@ -61,9 +62,14 @@ def main(argv=None):
                         help='Also analyse reference/vendored/example dirs (off by default '
                              'so third-party noise never drowns your own code).')
     parser.add_argument('--ast', action='store_true',
-                        help='EXPERIMENTAL: use tree-sitter for import/symbol extraction when '
-                             'installed (pip install tree-sitter tree-sitter-languages). '
-                             'Falls back to the zero-dep regex extractor if absent.')
+                        help='Force tree-sitter parsing (prints a note + uses regex if the '
+                             'grammar is not installed). AST is used automatically when '
+                             'available; this flag just makes the requirement explicit.')
+    parser.add_argument('--no-ast', action='store_true',
+                        help='Force the zero-dependency regex extractor even if tree-sitter '
+                             'is installed.')
+    parser.add_argument('--no-cache', action='store_true',
+                        help='Disable the incremental parse cache (.nodo/cache.json).')
     parser.add_argument('--multimodal', action='store_true',
                         help='Include images / PDFs / video as assets linked to the nodes near '
                              'them (contents are read by the Claude skill, not nodo).')
@@ -81,12 +87,16 @@ def main(argv=None):
         print(f'error: {root} is not a directory', file=sys.stderr)
         return 2
 
-    if args.ast:
+    # Parser selection: use tree-sitter automatically when importable (best
+    # accuracy), else the zero-dep regex extractor. --no-ast forces regex;
+    # --ast makes the tree-sitter requirement explicit.
+    if not args.no_ast:
         from . import ast_index
-        scanner.enable_ast()
-        if not ast_index.available():
+        if ast_index.available():
+            scanner.enable_ast()
+        elif args.ast:
             print('[nodo] --ast: tree-sitter not installed; using the zero-dep regex '
-                  'extractor. Install with: pip install tree-sitter tree-sitter-languages',
+                  'extractor. Install with: pip install tree-sitter tree-sitter-language-pack',
                   file=sys.stderr)
 
     if args.init:
@@ -203,17 +213,36 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
     t0 = time.time()
     if not quiet:
         print(f'nodo {__version__} — scanning {root} ...')
+    cache_data = None if args.no_cache else _cache.load(out_dir)
+    diag = {}
     nodes, edges, file_texts = build_graph(
         root,
         ignore_dirs=ignore_dirs,
         respect_gitignore=not args.no_gitignore,
         max_file_kb=cfg.get('max_file_kb', 512),
+        cache=cache_data,
+        diagnostics=diag,
     )
+    if not args.no_cache and cache_data is not None:
+        _cache.save(out_dir, cache_data)
     if not nodes:
         print('No source files found. Is this the right directory?', file=sys.stderr)
         return None
     if not quiet:
-        print(f'  {len(nodes)} files, {len(edges)} dependencies')
+        parser_label = 'tree-sitter' if scanner._USE_AST else 'regex'
+        print(f'  {len(nodes)} files, {len(edges)} dependencies  [parser: {parser_label}]')
+        ch, pa = diag.get('cache_hits', 0), diag.get('parsed', 0)
+        if ch:
+            print(f'  cache: {ch} reused, {pa} parsed')
+        nsl = len(diag.get('skipped_large', []))
+        nre = len(diag.get('read_errors', []))
+        if nsl or nre:
+            bits = []
+            if nsl:
+                bits.append(f'{nsl} skipped (>{cfg.get("max_file_kb", 512)}KB)')
+            if nre:
+                bits.append(f'{nre} unreadable')
+            print('  note: ' + ', '.join(bits))
 
     communities = detect_communities(len(nodes), edges)
     comm_sum = community_summaries(communities, nodes)
@@ -259,7 +288,8 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
         comm_summaries=comm_sum, issues=issues,
         community_names=cfg.get('community_names'),
         flows=flows, sensitive=sensitive, apis=apis,
-        docs=docs, assets=assets,
+        docs=docs, assets=assets, diagnostics=diag,
+        parser=('tree-sitter' if scanner._USE_AST else 'regex'),
     )
 
     if not quiet:
