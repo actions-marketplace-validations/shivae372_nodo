@@ -147,6 +147,25 @@ The AI assistant sitting on top (Claude Code) reads that evidence and tells you 
 private search; the model does the reasoning — so you get answers without the
 grep-and-guess, and without the model hallucinating structure it didn't verify.
 
+## MCP server — live tools, mid-session (optional)
+
+Static context files are read once at session start. The MCP server lets your
+agent call nodo **as tools any time** — "what's the blast radius of the edit I
+just made?" — which is the stickier integration pattern.
+
+```bash
+pip install mcp                 # optional (Python 3.10+); core stays zero-dep
+python nodo.py . --mcp          # run the stdio server
+python nodo.py . --install      # also registers it in .mcp.json for Claude Code / Cursor
+```
+
+It exposes ten tools — `nodo_ask`, `nodo_blast_radius`, `nodo_who_uses`,
+`nodo_path`, `nodo_explain`, `nodo_list_issues`, `nodo_hubs`, `nodo_topics`,
+`nodo_overview`, `nodo_refresh` — all thin wrappers over the same engine the CLI
+uses (read-only, local, no network). If `mcp` isn't installed, nodo prints the
+install command and every other command keeps working — the zero-dependency core
+is never affected.
+
 ## It remembers (personalization)
 
 nodo learns from how you use it, all **local** (nothing leaves your machine):
@@ -365,7 +384,8 @@ nodo [PATH] [options]
   --explain CONCEPT    find the files & design docs related to a concept (BM25)
   --topics             print knowledge-graph topics (doc/PDF communities), then exit
   --hook               install a Claude Code SessionStart hook, then exit
-  --install            wire the map into Claude + Cursor + AGENTS.md, then exit
+  --install            wire the map into Claude + Cursor + AGENTS.md (+ MCP), then exit
+  --mcp                run as an MCP server (stdio) — agents call nodo's tools live
   --include-vendor     also analyse reference/vendored/example dirs
   --multimodal         link images/PDFs/video to the nodes near them
   --docs-only          index doc text but skip the multimodal asset pass
