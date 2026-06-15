@@ -55,6 +55,10 @@ def main(argv=None):
     parser.add_argument('--topics', action='store_true',
                         help="Print the knowledge-graph topics (communities of docs/PDFs) "
                              "and exit. Add --full to include PDFs.")
+    parser.add_argument('--ask', metavar='QUESTION', default=None,
+                        help="Ask a natural-language question — nodo routes it to blast-radius, "
+                             "import-path, symbol, concept search, or topics. One command for "
+                             "every query.")
     parser.add_argument('--hook', action='store_true',
                         help="Install a Claude Code SessionStart hook so agents auto-load "
                              "the architecture map at session start. Then exit.")
@@ -146,6 +150,11 @@ def main(argv=None):
 
     if args.query:
         needle = args.query
+        try:
+            from . import querylog
+            querylog.record(out_dir, 'query', needle)
+        except Exception:
+            pass
         # cheap path: existing map + the needle names a file → blast radius
         if (out_dir / 'nodo-context.json').exists():
             file_res = query_file(out_dir, needle)
@@ -190,6 +199,24 @@ def main(argv=None):
             if _run_scan(root, out_dir, project_name, cfg, args, quiet=True) is None:
                 return 1
         print(explain_concept(out_dir, args.explain, file_texts=file_texts, docs=docs))
+        return 0
+
+    if args.ask:
+        ignore_dirs = _ignore_dirs(cfg, args, out_dir, root)
+        nodes, edges, file_texts = build_graph(
+            root, ignore_dirs=ignore_dirs, respect_gitignore=not args.no_gitignore,
+            max_file_kb=cfg.get('max_file_kb', 512))
+        docs = discover_docs(root, ignore_dirs)
+        if not (out_dir / 'nodo-context.json').exists():
+            if _run_scan(root, out_dir, project_name, cfg, args, quiet=True) is None:
+                return 1
+        from . import ask as _ask
+        print(_ask.answer(args.ask, nodes, edges, file_texts, out_dir, docs=docs))
+        try:
+            from . import querylog
+            querylog.record(out_dir, 'ask', args.ask)
+        except Exception:
+            pass
         return 0
 
     if args.topics:
@@ -285,6 +312,7 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
     if not quiet:
         print(f'nodo {__version__} — scanning {root} ...')
     cache_data = None if args.no_cache else _cache.load(out_dir)
+    old_hashes = {rel: e.get('hash') for rel, e in (cache_data or {}).items()}
     diag = {}
     nodes, edges, file_texts = build_graph(
         root,
@@ -294,6 +322,12 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
         cache=cache_data,
         diagnostics=diag,
     )
+    # personalization: what changed since your last scan (uses the content-hash cache)
+    if cache_data is not None and old_hashes:
+        cur = set(file_texts)
+        diag['changed'] = sorted(r for r in cur if r in old_hashes
+                                 and cache_data.get(r, {}).get('hash') != old_hashes[r])
+        diag['added'] = sorted(r for r in cur if r not in old_hashes)
     if not args.no_cache and cache_data is not None:
         _cache.save(out_dir, cache_data)
     if not nodes:
@@ -308,6 +342,9 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
         ch, pa = diag.get('cache_hits', 0), diag.get('parsed', 0)
         if ch:
             print(f'  cache: {ch} reused, {pa} parsed')
+        nch, nad = len(diag.get('changed', [])), len(diag.get('added', []))
+        if nch or nad:
+            print(f'  since last scan: {nch} changed, {nad} new')
         nsl = len(diag.get('skipped_large', []))
         nre = len(diag.get('read_errors', []))
         if nsl or nre:

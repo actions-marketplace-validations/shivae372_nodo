@@ -211,6 +211,8 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
             'stat_errors': diagnostics.get('stat_errors', []),
             'cache_hits': diagnostics.get('cache_hits', 0),
             'parsed': diagnostics.get('parsed', 0),
+            'changed': diagnostics.get('changed', []),
+            'added': diagnostics.get('added', []),
         },
         'hubs': hub_list,
         'communities': comm_display,
@@ -261,6 +263,26 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
           '| File | Edges |', '|---|---|']
     for h in hub_list:
         md.append(f'| `{h["file"]}` | {h["edges"]} |')
+
+    # personalization: what changed since last scan + the files you query most
+    changed, added = diagnostics.get('changed', []), diagnostics.get('added', [])
+    if changed or added:
+        md.append('\n## Since your last scan\n')
+        if changed:
+            md.append(f'- **Changed ({len(changed)})**: '
+                      + ', '.join(f'`{r}`' for r in changed[:12]) + (' …' if len(changed) > 12 else ''))
+        if added:
+            md.append(f'- **New ({len(added)})**: '
+                      + ', '.join(f'`{r}`' for r in added[:12]) + (' …' if len(added) > 12 else ''))
+    try:
+        from . import querylog
+        freq = querylog.frequent_files(out_dir, [n['rel'] for n in nodes if n.get('kind', 'code') == 'code'])
+        if freq:
+            md.append('\n## Files you work with most (from your queries)\n')
+            for rel, cnt in freq:
+                md.append(f'- `{rel}` — queried {cnt}×')
+    except Exception:
+        pass
 
     if sensitive:
         md.append('\n## Security-sensitive surfaces (review first)\n')

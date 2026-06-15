@@ -121,6 +121,37 @@ Or just tell your terminal agent:
 
 ---
 
+## Ask nodo anything (`--ask`)
+
+One command for every question — nodo figures out what you mean and routes it to
+the right answer. No need to remember flags:
+
+```bash
+python nodo.py . --ask "what breaks if I change lib/auth.ts?"   # → blast radius + change impact
+python nodo.py . --ask "how does the router connect to the db?" # → import-path trace
+python nodo.py . --ask "who uses verifyToken?"                  # → definition + references
+python nodo.py . --ask "what should I fix in checkout.ts?"      # → issues, high-confidence first
+python nodo.py . --ask "what are the key files?"                # → load-bearing hubs
+python nodo.py . --ask "where is authentication?"               # → code + docs + PDFs
+python nodo.py . --ask "what are the main topics?"              # → knowledge-graph communities
+```
+
+Every answer is prefixed with how it was interpreted (e.g. `[nodo · blast radius:
+lib/auth.ts]`), so it's never a black box — and an unrecognized question returns a
+short menu of what nodo can answer. This is the entry point that makes nodo *the*
+place your agent goes for codebase questions.
+
+## It remembers (personalization)
+
+nodo learns from how you use it, all **local** (nothing leaves your machine):
+
+- **What changed since your last scan** — every scan reports changed/new files
+  (via the content-hash cache), surfaced in the output and `nodo-context.md` →
+  "Since your last scan".
+- **The files you work with most** — `--query`/`--ask` are logged locally
+  (`.nodo/queries.log`) and the files you touch most show up in `nodo-context.md`,
+  so the map foregrounds *your* hot paths. Keep `.nodo/` out of git (it's local).
+
 ## Save your agent's tokens
 
 Two features turn Nodo from a viewer into an agent's memory — both cut tokens by
@@ -321,6 +352,8 @@ nodo [PATH] [options]
   --name NAME          project name in the viewer (default: folder name)
   --open               open the HTML in your browser when done
   --init               write a sample .nodo.json and exit
+  --ask "QUESTION"     natural-language: routes to blast-radius/path/symbol/issues/
+                       hubs/concept/topics — one command for every query
   --query FILE|SYMBOL  blast radius for a file, or definition+references for a symbol
   --path A B           show the import chain connecting two files
   --explain CONCEPT    find the files & design docs related to a concept (BM25)

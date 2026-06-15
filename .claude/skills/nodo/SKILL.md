@@ -43,6 +43,19 @@ Tell the user:
 
 ## When debugging with Nodo's output
 
+- **Ask anything (start here):** for almost any codebase question, ask nodo in
+  plain English — it routes to the right answer (blast radius, import path, symbol
+  refs, issues, hubs, concept search, or topics) and prefixes each answer with how
+  it interpreted you:
+
+  ```bash
+  python /path/to/nodo/nodo.py . --ask "what breaks if I change lib/auth.ts?"
+  python /path/to/nodo/nodo.py . --ask "what should I fix in checkout.ts?"
+  python /path/to/nodo/nodo.py . --ask "how does the router reach the database?"
+  ```
+
+  Reach for `--ask` before grepping or reading files. The specific flags below are
+  there when you already know exactly which one you want.
 - **Cheapest impact check (preferred over reading files):** to learn what a file
   depends on and what breaks if you change it, run a query instead of opening
   files — it answers in ~200 tokens:

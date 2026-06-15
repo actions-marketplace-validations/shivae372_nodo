@@ -794,5 +794,70 @@ class TestEndToEnd(unittest.TestCase):
         self.assertIn("AudioEngine", r.stdout)
 
 
+# ── --ask natural-language router ─────────────────────────────────────────────
+class TestAsk(unittest.TestCase):
+    PROJECT = {
+        "src/db.ts": "export function query(s){ return s; }\nexport function connect(){ return 1; }\n",
+        "src/service.ts": "import {query} from './db';\nexport function getUser(id){ return query('x'); }\n",
+        "src/api.ts": "import {getUser} from './service';\nexport const route = () => getUser(1);\n",
+        "src/main.ts": "import './api';\nconsole.log('boot');\n",
+    }
+
+    def _ask(self, question):
+        from nodo import scanner, ask
+        d = make_project(self.PROJECT)
+        subprocess.run([sys.executable, "-m", "nodo", d], cwd=str(REPO), capture_output=True)
+        nodes, edges, texts = scanner.build_graph(d)
+        docs = scanner.discover_docs(d, scanner.DEFAULT_IGNORE_DIRS)
+        return ask.answer(question, nodes, edges, texts, str(Path(d) / ".nodo"), docs=docs)
+
+    def test_blast_radius(self):
+        out = self._ask("what breaks if I change src/db.ts")
+        self.assertIn("blast radius", out)
+        self.assertIn("DEPENDENTS", out)
+
+    def test_path(self):
+        out = self._ask("how does api connect to db")
+        self.assertIn("reaches", out)
+
+    def test_symbol(self):
+        out = self._ask("who uses getUser")
+        self.assertIn("SYMBOL", out)
+
+    def test_issues(self):
+        out = self._ask("what issues or bugs are here")
+        self.assertIn("issue", out.lower())
+
+    def test_hubs(self):
+        out = self._ask("what are the key files")
+        self.assertIn("hub", out.lower())
+
+    def test_fallback_menu(self):
+        out = self._ask("zzzqqq nonsense")
+        self.assertIn("I can answer", out)
+
+
+# ── personalization: changed-since-last-scan + query log ──────────────────────
+class TestPersonalization(unittest.TestCase):
+    def test_changed_since_last_scan(self):
+        d = make_project({"src/a.ts": "export const a=1;\n", "src/b.ts": "export const b=2;\n"})
+        subprocess.run([sys.executable, "-m", "nodo", d], cwd=str(REPO), capture_output=True)
+        Path(d, "src/a.ts").write_text("export const a=1;\nexport const c=3;\n")
+        subprocess.run([sys.executable, "-m", "nodo", d], cwd=str(REPO), capture_output=True)
+        ctx = json.loads((Path(d) / ".nodo" / "nodo-context.json").read_text())
+        self.assertIn("src/a.ts", ctx["diagnostics"].get("changed", []))
+        self.assertNotIn("src/b.ts", ctx["diagnostics"].get("changed", []))
+
+    def test_querylog_frequent_files(self):
+        from nodo import querylog
+        d = make_project({"src/db.ts": "export const x=1;\n"})
+        out = Path(d) / ".nodo"
+        out.mkdir(parents=True, exist_ok=True)
+        for _ in range(3):
+            querylog.record(out, "query", "src/db.ts")
+        freq = dict(querylog.frequent_files(out, ["src/db.ts"]))
+        self.assertGreaterEqual(freq.get("src/db.ts", 0), 3)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
