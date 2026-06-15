@@ -413,6 +413,54 @@ class TestCacheAndDiagnostics(unittest.TestCase):
         self.assertIn("big.js", diag.get("skipped_large", []))
 
 
+class TestKnowledgeGraph(unittest.TestCase):
+    def test_topics_cluster_related_docs(self):
+        from nodo.knowledge import build_knowledge
+        k = build_knowledge({
+            "a.md": "jwt token session login logout token session jwt",
+            "b.md": "session token jwt login verify token session jwt",
+            "c.md": "stripe charge refund invoice stripe charge subscription",
+            "d.md": "charge refund stripe invoice billing charge stripe",
+        })
+
+        def topic_of(doc):
+            return next((t for t in k["topics"] if any(doc in x for x in t["docs"])), None)
+        ta, tc = topic_of("a.md"), topic_of("c.md")
+        self.assertIsNotNone(ta)
+        self.assertIsNotNone(tc)
+        self.assertNotEqual(ta["id"], tc["id"], "auth and payments should be different topics")
+        self.assertTrue(any("b.md" in x for x in ta["docs"]), "a.md & b.md should co-cluster")
+        self.assertTrue(any("d.md" in x for x in tc["docs"]), "c.md & d.md should co-cluster")
+
+    def test_concept_nodes_added_to_graph(self):
+        from nodo import graphmerge, knowledge
+        d, nodes, edges, _ = graph({"src/a.ts": "export const x=1\n"})
+        docs = {"docs/x.md": "alpha beta gamma alpha beta gamma",
+                "docs/y.md": "beta gamma delta beta gamma delta"}
+        know = knowledge.build_knowledge(docs)
+        comms = {n["id"]: 0 for n in nodes}
+        un, ue, _ = graphmerge.integrate(nodes, edges, comms, docs, [], ".", knowledge=know)
+        self.assertIn("concept", {n["kind"] for n in un})
+        concept_ids = {n["id"] for n in un if n["kind"] == "concept"}
+        self.assertTrue(any(e.get("kind") == "reference" and e["target"] in concept_ids for e in ue),
+                        "a doc should link to a concept node")
+
+    def test_empty_knowledge_no_docs(self):
+        from nodo.knowledge import build_knowledge
+        self.assertEqual(build_knowledge({})["topics"], [])
+
+    def test_topics_cli(self):
+        d = make_project({
+            "src/a.ts": "export const x=1\n",
+            "docs/auth.md": "jwt token session login token session jwt login",
+            "docs/auth2.md": "token session jwt login verify token session jwt",
+        })
+        r = subprocess.run([sys.executable, "-m", "nodo", d, "--topics"],
+                           cwd=str(REPO), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Knowledge topics", r.stdout)
+
+
 class TestConfidence(unittest.TestCase):
     def test_every_issue_has_confidence(self):
         issues = detectors.detect_all(*graph({

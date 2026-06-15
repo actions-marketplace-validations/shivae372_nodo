@@ -66,7 +66,7 @@ def _resolve(target, from_rel, by_rel, by_base):
 
 
 def integrate(code_nodes, code_edges, communities, docs, assets, root,
-              max_doc_edges=40):
+              max_doc_edges=40, knowledge=None):
     """Return (nodes, edges, communities) extended with doc + asset nodes and
     reference edges. Inputs are the code-only graph; outputs are for render +
     context.json only (detectors already ran on the code graph)."""
@@ -79,7 +79,7 @@ def integrate(code_nodes, code_edges, communities, docs, assets, root,
     rel_to_id = {n['rel']: n['id'] for n in nodes}
     next_id = (max((n['id'] for n in nodes), default=-1)) + 1
     max_comm = max(communities.values(), default=-1)
-    doc_comm, asset_comm = max_comm + 1, max_comm + 2
+    doc_comm, asset_comm, concept_comm = max_comm + 1, max_comm + 2, max_comm + 3
 
     asset_rels = [a['rel'] for a in (assets or [])]
     # index of everything a doc/code file might point at: code + assets
@@ -158,5 +158,22 @@ def integrate(code_nodes, code_edges, communities, docs, assets, root,
         aid = asset_ids[a['rel']]
         for ref in a.get('referenced_by', []):
             add_edge(rel_to_id.get(ref), aid)
+
+    # ── concept nodes (knowledge graph) + doc/pdf → concept edges ──
+    if knowledge and knowledge.get('concepts'):
+        concept_ids = {}
+        for c in knowledge['concepts']:
+            nid = next_id
+            next_id += 1
+            concept_ids[c] = nid
+            communities[nid] = concept_comm
+            nodes.append({
+                'id': nid, 'label': c, 'rel': 'concept:' + c,
+                'category': 'concept', 'loc': 0, 'tier': 'app', 'kind': 'concept',
+            })
+        for rel, cs in (knowledge.get('doc_concepts') or {}).items():
+            src = rel_to_id.get(rel)
+            for c in cs:
+                add_edge(src, concept_ids.get(c))
 
     return nodes, edges, communities

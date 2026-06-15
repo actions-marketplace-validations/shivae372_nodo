@@ -52,6 +52,9 @@ def main(argv=None):
     parser.add_argument('--explain', metavar='CONCEPT', default=None,
                         help="Find the files most related to a concept (e.g. 'authentication', "
                              "'billing'). Lexical search over paths + content. For AI agents.")
+    parser.add_argument('--topics', action='store_true',
+                        help="Print the knowledge-graph topics (communities of docs/PDFs) "
+                             "and exit. Add --full to include PDFs.")
     parser.add_argument('--hook', action='store_true',
                         help="Install a Claude Code SessionStart hook so agents auto-load "
                              "the architecture map at session start. Then exit.")
@@ -180,6 +183,27 @@ def main(argv=None):
         print(explain_concept(out_dir, args.explain, file_texts=file_texts, docs=docs))
         return 0
 
+    if args.topics:
+        # (re)build the map so the knowledge graph is fresh, then print topics
+        if _run_scan(root, out_dir, project_name, cfg, args, quiet=True) is None:
+            return 1
+        import json as _json
+        try:
+            ctx = _json.loads((out_dir / 'nodo-context.json').read_text(encoding='utf-8', errors='ignore'))
+        except Exception:
+            ctx = {}
+        topics = ctx.get('knowledge', {}).get('topics', [])
+        if not topics:
+            print('No doc/PDF topics found. Add docs, or run with --full to include PDFs.')
+            return 0
+        print(f'Knowledge topics ({len(topics)}) — communities of docs/PDFs:')
+        for t in topics:
+            cs = ', '.join(t['concepts'][:6])
+            ds = ', '.join(d.split('/')[-1] for d in t['docs'][:4])
+            print(f'  • {t["name"]}: {cs}' + (f'   [{ds}]' if ds else ''))
+        print('\nAsk the Claude skill to answer questions semantically over these topics.')
+        return 0
+
     result = _run_scan(root, out_dir, project_name, cfg, args)
     if result is None:
         return 1
@@ -304,22 +328,37 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
     # design docs (always indexed — cheap) + optional multimodal asset linking
     docs = discover_docs(root, ignore_dirs)
     assets = []
-    if not quiet and _resolve_multimodal(args):
+    doc_texts = dict(docs)                       # corpus for the knowledge graph
+    do_multimodal = args.multimodal or args.full or (not quiet and _resolve_multimodal(args))
+    if do_multimodal:
         raw = discover_assets(root, ignore_dirs)
         assets = link_assets(root, raw, nodes, docs,
                              include_reference=getattr(args, 'include_vendor', False))
         assets, n_pdf = attach_pdf_text(root, assets)
+        from .assets import extract_pdf_text
+        for a in assets:                         # fold full PDF text into the corpus
+            if a['type'] == 'pdf':
+                t = extract_pdf_text(str(root / a['rel']))
+                if t:
+                    doc_texts[a['rel']] = t
         extra = f', {n_pdf} PDF(s) text-extracted' if n_pdf else ''
         print(f'  {len(docs)} docs indexed, {len(assets)} assets linked to nodes{extra}')
     elif not quiet and docs:
         print(f'  {len(docs)} docs indexed')
 
-    # Unify the graph: add doc + asset nodes and reference edges so everything is
-    # connected in the rendered graph / context.json. Detectors above already ran
-    # on the code-only graph, so this never affects structural analysis.
+    # Knowledge graph: mine concepts + topic communities from doc/PDF text.
+    from . import knowledge as _knowledge
+    know = _knowledge.build_knowledge(doc_texts)
+    if not quiet and know.get('topics'):
+        print(f'  knowledge: {len(know["topics"])} topic(s), '
+              f'{len(know["concepts"])} concept(s) from {len(doc_texts)} doc(s)/PDF(s)')
+
+    # Unify the graph: add doc + asset + concept nodes and reference edges so
+    # everything is connected in the rendered graph / context.json. Detectors above
+    # already ran on the code-only graph, so this never affects structural analysis.
     from . import graphmerge
     u_nodes, u_edges, u_comm = graphmerge.integrate(
-        nodes, edges, communities, docs, assets, str(root))
+        nodes, edges, communities, docs, assets, str(root), knowledge=know)
 
     result = render(
         out_dir=out_dir,
@@ -331,6 +370,7 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
         flows=flows, sensitive=sensitive, apis=apis,
         docs=docs, assets=assets, diagnostics=diag,
         parser=('tree-sitter' if scanner._USE_AST else 'regex'),
+        knowledge=know,
     )
 
     if not quiet:
