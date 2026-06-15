@@ -16,6 +16,7 @@ from an identically-named function call — so more edges resolve and fewer file
 look like false orphans.
 """
 import os
+import re
 
 _PARSERS = {}          # ext -> parser | None (cache)
 _CHECKED = False
@@ -28,7 +29,10 @@ _LANG_NAME = {
     '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
     '.ts': 'typescript', '.tsx': 'tsx', '.mts': 'typescript', '.cts': 'typescript',
     '.go': 'go', '.rs': 'rust', '.java': 'java', '.rb': 'ruby', '.php': 'php',
-    '.c': 'c', '.h': 'c', '.cpp': 'cpp', '.hpp': 'cpp', '.cc': 'cpp', '.cs': 'csharp',
+    '.c': 'c', '.h': 'c', '.cpp': 'cpp', '.hpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp',
+    '.cs': 'csharp', '.kt': 'kotlin', '.kts': 'kotlin', '.swift': 'swift',
+    '.scala': 'scala', '.sc': 'scala', '.dart': 'dart', '.lua': 'lua',
+    '.sol': 'solidity', '.sh': 'bash', '.bash': 'bash',
 }
 
 _PY = {'.py'}
@@ -138,7 +142,28 @@ def extract_imports_ast(rel, text):
                                     out.append(txt(c).strip('\'"`'))
                                     break
         else:
-            return None  # no AST handler for this language → use regex
+            lang = _LANG_NAME.get(ext)
+            if lang in ('c', 'cpp'):
+                for n in _walk(tree.root_node):       # local #include "x.h" (system <...> skipped → resolves to files)
+                    if n.type == 'preproc_include':
+                        for c in n.children:
+                            if c.type == 'string_literal':
+                                out.append(txt(c).strip('"').strip("'"))
+            elif lang == 'go':
+                for n in _walk(tree.root_node):        # import "pkg/path" (package-level)
+                    if n.type == 'import_spec':
+                        for c in n.children:
+                            if 'string' in c.type:
+                                out.append(txt(c).strip('"').strip('`'))
+            elif lang == 'java':
+                for n in _walk(tree.root_node):        # import com.x.Y (package-level)
+                    if n.type == 'import_declaration':
+                        for c in n.children:
+                            if c.type in ('scoped_identifier', 'identifier'):
+                                out.append(txt(c))
+                                break
+            else:
+                return None  # no AST import handler → use regex fallback
 
         seen, uniq = set(), []
         for s in out:
@@ -161,6 +186,68 @@ _DEF_TYPES = {
 }
 _FUNCY = {'arrow_function', 'function', 'function_expression',
           'class', 'class_expression', 'generator_function'}
+
+# Definition node types for the OTHER languages (Go/Rust/Java/C/C++/Ruby/PHP/C#),
+# unioned with _DEF_TYPES. Node-type names are language-unique enough that a single
+# union works; each is named via its `name` field (or, for C/C++, the declarator).
+_EXTRA_DEF_TYPES = {
+    'method_declaration', 'type_spec', 'record_declaration',           # go / java / c#
+    'function_item', 'struct_item', 'enum_item', 'trait_item',         # rust
+    'mod_item', 'const_item',
+    'class_specifier', 'struct_specifier', 'struct_declaration',       # c++ / c#
+    'method', 'singleton_method', 'module', 'trait_declaration',       # ruby / php
+    'class_definition', 'object_definition', 'function_signature',     # scala / dart
+}
+_ALL_DEF_TYPES = _DEF_TYPES | _EXTRA_DEF_TYPES
+
+# Grammar-agnostic definition detection. tree-sitter grammars name definition
+# nodes by a strong convention: a def keyword (function/class/struct/trait/…)
+# plus a structural suffix (_declaration/_definition/_item/_specifier/_signature).
+# Matching that pattern — instead of hand-listing node types per language — gives
+# uniform symbol extraction across 40+ tree-sitter languages. The name-resolver
+# (`_name_of`) then filters out anything without a real name, and the suffix gate
+# excludes containers/calls (function_body, method_invocation, function_type, …).
+_DEF_KW = re.compile(
+    r'(?:^|_)(func|function|fn|method|constructor|destructor|class|struct|union|'
+    r'enum|interface|trait|impl|protocol|module|namespace|object|record|macro|'
+    r'subroutine|procedure|signature|contract)(?:$|_)')
+_DEF_SUFFIX = ('_declaration', '_definition', '_specifier', '_item', '_spec', '_signature')
+
+
+def _is_def_type(t):
+    if t in _ALL_DEF_TYPES:
+        return True
+    return bool(_DEF_KW.search(t)) and t.endswith(_DEF_SUFFIX)
+
+
+def _name_of(node, txt, field):
+    """Definition name: the `name` field when present, else (C/C++) the function's
+    own identifier by following the declarator chain (NOT a parameter). None if absent."""
+    nm = field(node, 'name')
+    if nm is not None:
+        return txt(nm)
+    if node.type == 'function_definition':          # C / C++
+        decl = field(node, 'declarator')
+        # unwrap pointer/reference/parenthesized declarators
+        for _ in range(6):
+            if decl is None or decl.type == 'function_declarator':
+                break
+            inner = field(decl, 'declarator')
+            if inner is None:
+                break
+            decl = inner
+        if decl is not None and decl.type == 'function_declarator':
+            name_node = field(decl, 'declarator')
+            if name_node is not None:
+                return txt(name_node)
+        return None
+    # generic fallback (e.g. Kotlin): first identifier-like DIRECT child — direct,
+    # not deep, so we get the definition's own name and never a parameter.
+    for c in node.children:
+        if c.type in ('identifier', 'simple_identifier', 'type_identifier',
+                      'constant', 'name'):
+            return txt(c)
+    return None
 
 
 def extract_defs_ast(rel, text):
@@ -187,10 +274,10 @@ def extract_defs_ast(rel, text):
         out = []
         for n in _walk(tree.root_node):
             t = n.type
-            if t in _DEF_TYPES:
-                nm = field(n, 'name')
-                if nm is not None:
-                    out.append((txt(nm), n.start_point[0] + 1))
+            if _is_def_type(t):
+                name = _name_of(n, txt, field)
+                if name:
+                    out.append((name, n.start_point[0] + 1))
             elif t == 'variable_declarator':
                 val = field(n, 'value')
                 if val is not None and val.type in _FUNCY:

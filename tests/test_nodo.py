@@ -654,6 +654,32 @@ class TestAST(unittest.TestCase):
         self.assertIn("make", names)
         self.assertNotIn("LOCAL", names)  # non-function const is not a "definition"
 
+    def test_ast_defs_many_languages(self):
+        # grammar-agnostic AST symbol extraction across the mainstream language set
+        from nodo import ast_index
+        if not ast_index.available():
+            self.skipTest("tree-sitter not installed")
+        cases = [
+            ("a.go", "package m\nfunc Hello(x int) int { return x }\n", "Hello", "x"),
+            ("a.rs", "pub fn run(a: i32) -> i32 { a }\nstruct S;\n", "run", None),
+            ("a.java", "class C { void doIt(int a){ go(); } }\n", "doIt", "go"),
+            ("a.c", "int add(int a, int b){ return a+b; }\n", "add", "a"),
+            ("a.cpp", "class K{}; int g(int x){ return x; }\n", "g", "x"),
+            ("a.cs", "namespace N{ class C{ void M(){} } }\n", "M", None),
+            ("a.rb", "def bar(a); a; end\n", "bar", None),
+            ("a.php", "<?php\nfunction h($a){ return $a; }\n", "h", None),
+            ("a.kt", "fun hello(x: Int): Int { return x }\n", "hello", None),
+            ("a.swift", "func hello(x: Int) -> Int { x }\n", "hello", None),
+            ("a.scala", "def hello(x: Int) = x\n", "hello", None),
+            ("a.dart", "int hello(int x) => x;\n", "hello", None),
+            ("a.lua", "local function hello() end\n", "hello", None),
+        ]
+        for f, code, must, mustnot in cases:
+            names = {n for n, _ in (ast_index.extract_defs_ast(f, code) or [])}
+            self.assertIn(must, names, "%s: expected %r in %s" % (f, must, names))
+            if mustnot:
+                self.assertNotIn(mustnot, names, "%s: %r (a call/param) wrongly captured" % (f, mustnot))
+
 
 # ── Determinism (hash-seed independence) ──────────────────────────────────────
 class TestDeterminism(unittest.TestCase):

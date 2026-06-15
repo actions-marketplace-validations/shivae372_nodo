@@ -40,9 +40,9 @@ REFERENCE_SEGMENTS = {
 # Extensions we treat as source and try to parse imports from.
 SOURCE_EXTS = {
     '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.mts', '.cts', '.vue', '.svelte',
-    '.py', '.rb', '.go', '.rs', '.java', '.kt', '.php', '.cs', '.swift',
-    '.c', '.h', '.cpp', '.hpp', '.cc', '.m', '.scala', '.dart', '.ex',
-    '.exs', '.elm', '.sql',
+    '.py', '.rb', '.go', '.rs', '.java', '.kt', '.kts', '.php', '.cs', '.swift',
+    '.c', '.h', '.cpp', '.hpp', '.cc', '.cxx', '.m', '.scala', '.sc', '.dart',
+    '.lua', '.ex', '.exs', '.elm', '.sql', '.sol', '.sh', '.bash',
 }
 
 # Documentation/spec extensions — indexed for semantic recall (`--explain`),
