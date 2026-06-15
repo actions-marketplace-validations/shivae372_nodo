@@ -367,6 +367,59 @@ class TestGraphIntegration(unittest.TestCase):
         self.assertNotIn("spec.md", r.stdout)           # doc reference must NOT count
 
 
+# ── Incremental cache, diagnostics, new detectors ────────────────────────────
+class TestCacheAndDiagnostics(unittest.TestCase):
+    def test_parse_cache_reused_and_identical(self):
+        d = make_project({"a.js": "import {b} from './b';\n", "b.js": "export const b=1;\n"})
+        cache, diag = {}, {}
+        n1, e1, _ = scanner.build_graph(d, cache=cache, diagnostics=diag)
+        self.assertGreater(diag.get("parsed", 0), 0)
+        self.assertTrue(cache)                       # cache populated
+        diag2 = {}
+        n2, e2, _ = scanner.build_graph(d, cache=cache, diagnostics=diag2)
+        self.assertEqual(diag2.get("parsed", 0), 0)  # nothing re-parsed
+        self.assertEqual(diag2.get("cache_hits", 0), len(n2))
+        self.assertEqual(edge_pairs(n1, e1), edge_pairs(n2, e2))  # identical result
+
+    def test_cache_invalidates_on_change(self):
+        d = make_project({"a.js": "import {b} from './b';\n", "b.js": "export const b=1;\n"})
+        cache = {}
+        scanner.build_graph(d, cache=cache)
+        Path(d, "a.js").write_text("import {b} from './b';\nimport {c} from './c';\n")
+        Path(d, "c.js").write_text("export const c=1;\n")
+        n, e, _ = scanner.build_graph(d, cache=cache)
+        self.assertIn(("a.js", "c.js"), edge_pairs(n, e))  # change picked up
+
+    def test_oversized_file_reported_not_silent(self):
+        d = make_project({"ok.js": "export const x=1;\n"})
+        Path(d, "big.js").write_text("//\n" + ("a" * (600 * 1024)))
+        diag = {}
+        scanner.build_graph(d, max_file_kb=512, diagnostics=diag)
+        self.assertIn("big.js", diag.get("skipped_large", []))
+
+
+class TestNewDetectors(unittest.TestCase):
+    def test_high_complexity_flagged(self):
+        body = "export function big(){\n" + "".join(
+            "  if (x%d) doit();\n" % i for i in range(70)) + "}\n"
+        types = issue_types(*graph({"src/big.ts": body,
+                                    "src/main.ts": "import './big';\n"})[1:])
+        self.assertTrue(any("complexity" in t.lower() for t in types))
+
+    def test_duplication_detects_literal_only_differences(self):
+        def block(v, n):
+            return ("export function f%s(){\n  const url = '%s';\n  const max = %d;\n"
+                    "  log(url);\n  send(url, max);\n  retry(url);\n  finish(url);\n}\n"
+                    % (v, v, n))
+        types = issue_types(*graph({
+            "src/a.ts": block("alpha", 3),
+            "src/b.ts": block("betaval", 9),
+            "src/main.ts": "import './a';\nimport './b';\n",
+        })[1:])
+        self.assertTrue(any("Duplicat" in t for t in types),
+                        "blocks differing only in literals should still be duplication")
+
+
 # ── Optional tree-sitter AST backend (skips if not installed) ─────────────────
 class TestAST(unittest.TestCase):
     def test_ast_extracts_and_ignores_normal_calls(self):

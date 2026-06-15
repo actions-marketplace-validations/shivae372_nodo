@@ -471,7 +471,15 @@ def duplication_drift(nodes, file_texts, block=6, min_files=2):
         if not text:
             continue
         raw = text.split('\n')
-        norm = [re.sub(r'\s+', ' ', l).strip() for l in raw]
+        # Normalize whitespace AND literals so blocks that differ only in their
+        # string/number values still register as duplicates (drift catches the
+        # copy-paste-with-tweaked-constants case, not just byte-identical blocks).
+        norm = []
+        for l in raw:
+            s = re.sub(r'\s+', ' ', l).strip()
+            s = re.sub(r'(["\'`]).*?\1', '"S"', s)     # string literals → "S"
+            s = re.sub(r'\b\d+(?:\.\d+)?\b', 'N', s)   # numbers → N
+            norm.append(s)
         for i in range(len(norm) - block + 1):
             win = norm[i:i + block]
             # skip windows that are mostly trivial (blank/braces/imports)

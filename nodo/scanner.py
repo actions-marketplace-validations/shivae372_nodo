@@ -128,8 +128,9 @@ def load_gitignore(root):
     return extra
 
 
-def _walk(root, ignore_dirs, exts, max_file_kb):
-    """Yield (abs_path, rel_path) for files whose extension is in `exts`."""
+def _walk(root, ignore_dirs, exts, max_file_kb, diagnostics=None):
+    """Yield (abs_path, rel_path) for files whose extension is in `exts`.
+    Records oversized/unstattable files into `diagnostics` (no silent skips)."""
     root = Path(root).resolve()
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames
@@ -139,18 +140,22 @@ def _walk(root, ignore_dirs, exts, max_file_kb):
             if ext not in exts:
                 continue
             abs_path = os.path.join(dirpath, fn)
+            rel = os.path.relpath(abs_path, root).replace('\\', '/')
             try:
                 if os.path.getsize(abs_path) > max_file_kb * 1024:
+                    if diagnostics is not None:
+                        diagnostics.setdefault('skipped_large', []).append(rel)
                     continue
             except OSError:
+                if diagnostics is not None:
+                    diagnostics.setdefault('stat_errors', []).append(rel)
                 continue
-            rel = os.path.relpath(abs_path, root).replace('\\', '/')
             yield abs_path, rel
 
 
-def discover_files(root, ignore_dirs, max_file_kb=512):
+def discover_files(root, ignore_dirs, max_file_kb=512, diagnostics=None):
     """Yield (abs_path, rel_path) for every source file under root."""
-    yield from _walk(root, ignore_dirs, SOURCE_EXTS, max_file_kb)
+    yield from _walk(root, ignore_dirs, SOURCE_EXTS, max_file_kb, diagnostics)
 
 
 def discover_docs(root, ignore_dirs, max_file_kb=1024):
@@ -355,12 +360,17 @@ def resolve_import(importer_rel, target, idx):
 
 
 def build_graph(root, ignore_dirs=None, respect_gitignore=True, max_file_kb=512,
-                reference_segments=None):
+                reference_segments=None, cache=None, diagnostics=None):
     """Scan `root` and return (nodes, edges, file_texts).
 
-    nodes:      list of {id, label, rel, category, loc, tier}
-    edges:      list of {source, target}  (file-id -> file-id)
+    nodes:      list of {id, label, rel, category, loc, tier, kind}
+    edges:      list of {source, target, kind}  (file-id -> file-id)
     file_texts: {rel: text}  (cached so detectors don't re-read)
+
+    cache:       optional {rel: {mtime,size,ast,imports}} parse cache, mutated in
+                 place — unchanged files skip re-parsing (results are identical).
+    diagnostics: optional dict; records skipped/oversized/read-error files and
+                 cache hit/parse counts so nothing is dropped silently.
     """
     root = Path(root).resolve()
     ignore = set(DEFAULT_IGNORE_DIRS)
@@ -369,7 +379,7 @@ def build_graph(root, ignore_dirs=None, respect_gitignore=True, max_file_kb=512,
     if respect_gitignore:
         ignore |= load_gitignore(root)
 
-    files = list(discover_files(root, ignore, max_file_kb))
+    files = list(discover_files(root, ignore, max_file_kb, diagnostics))
     rel_paths = [rel for _, rel in files]
     idx = _build_resolution_index(rel_paths)
 
@@ -377,11 +387,34 @@ def build_graph(root, ignore_dirs=None, respect_gitignore=True, max_file_kb=512,
     raw_imports = {}
     for abs_path, rel in files:
         try:
+            stt = os.stat(abs_path)
+            mtime, size = int(stt.st_mtime), stt.st_size
+        except OSError:
+            mtime, size = 0, 0
+        try:
             text = Path(abs_path).read_text(encoding='utf-8', errors='ignore')
         except Exception:
             text = ''
+            if diagnostics is not None:
+                diagnostics.setdefault('read_errors', []).append(rel)
         file_texts[rel] = text
-        raw_imports[rel] = extract_imports(rel, text)
+        ce = cache.get(rel) if isinstance(cache, dict) else None
+        if ce and ce.get('mtime') == mtime and ce.get('size') == size and ce.get('ast') == _USE_AST:
+            raw_imports[rel] = ce.get('imports', [])
+            if diagnostics is not None:
+                diagnostics['cache_hits'] = diagnostics.get('cache_hits', 0) + 1
+        else:
+            imps = extract_imports(rel, text)
+            raw_imports[rel] = imps
+            if isinstance(cache, dict):
+                cache[rel] = {'mtime': mtime, 'size': size, 'ast': _USE_AST, 'imports': imps}
+            if diagnostics is not None:
+                diagnostics['parsed'] = diagnostics.get('parsed', 0) + 1
+    # drop cache entries for files that no longer exist
+    if isinstance(cache, dict):
+        present = set(rel_paths)
+        for r in [k for k in cache if k not in present]:
+            del cache[r]
 
     id_of = {rel: i for i, rel in enumerate(rel_paths)}
     nodes = []

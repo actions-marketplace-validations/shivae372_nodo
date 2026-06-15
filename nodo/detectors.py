@@ -200,6 +200,18 @@ def run_builtin_detectors(nodes, edges, file_texts, include_reference=False, sof
                                   f'{kind}: {note or "(no note)"}',
                                   i + 1, _snippet(lines, i + 1)))
 
+        # intra-file complexity: a cyclomatic-style proxy (count decision points).
+        # High branching in a single file is a refactor signal. Conservative
+        # threshold + globally capped, so it stays low-noise.
+        if not is_test:
+            dp = len(re.findall(r'\b(if|for|while|case|switch|catch|elif|except)\b|&&|\|\|', text))
+            if dp >= 60:
+                issues.append(_mk('info', 'Complexity', 'High decision complexity',
+                                  n['label'], rel,
+                                  f'{dp} decision points (if/for/while/case/&&/||) in one file — '
+                                  f'high branching; consider splitting into smaller units.',
+                                  '', []))
+
     return issues
 
 

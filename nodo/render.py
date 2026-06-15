@@ -41,7 +41,8 @@ def _sev_size(d):
 
 def render(out_dir, project_name, abs_root, nodes, edges, communities,
            comm_summaries, issues, community_names=None,
-           flows=None, sensitive=None, apis=None, docs=None, assets=None):
+           flows=None, sensitive=None, apis=None, docs=None, assets=None,
+           diagnostics=None, parser=None):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     community_names = community_names or {}
@@ -50,6 +51,7 @@ def render(out_dir, project_name, abs_root, nodes, edges, communities,
     apis = apis or []
     docs = docs or {}
     assets = assets or []
+    diagnostics = diagnostics or {}
 
     build_date = datetime.date.today().isoformat()
     build_ts = datetime.datetime.now().isoformat(timespec='seconds')
@@ -95,7 +97,7 @@ def render(out_dir, project_name, abs_root, nodes, edges, communities,
     # ── artifacts: JSON + MD + TXT ──
     _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
                      comm_display, issues, hub_list, deg, rank_of, flows, sensitive, apis,
-                     docs, assets)
+                     docs, assets, diagnostics, parser)
 
     # ── vis nodes/edges ──
     vis_nodes = _build_vis_nodes(nodes, deg, rank_of, communities, issue_by_file)
@@ -175,12 +177,14 @@ def _build_vis_nodes(nodes, deg, rank_of, communities, issue_by_file):
 
 def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
                      comm_display, issues, hub_list, deg, rank_of,
-                     flows=None, sensitive=None, apis=None, docs=None, assets=None):
+                     flows=None, sensitive=None, apis=None, docs=None, assets=None,
+                     diagnostics=None, parser=None):
     flows = flows or []
     sensitive = sensitive or []
     apis = apis or []
     docs = docs or {}
     assets = assets or []
+    diagnostics = diagnostics or {}
     n_err = sum(1 for x in issues if x['severity'] == 'error')
     n_warn = sum(1 for x in issues if x['severity'] == 'warn')
     n_info = sum(1 for x in issues if x['severity'] == 'info')
@@ -194,6 +198,16 @@ def _write_artifacts(out_dir, project_name, build_ts, nodes, edges, communities,
             'nodes': len(nodes), 'edges': len(edges),
             'communities': len(set(communities.values())) if communities else 0,
             'issues': {'total': len(issues), 'error': n_err, 'warn': n_warn, 'info': n_info},
+            'parser': parser or 'regex',
+        },
+        # what the scan dropped or reused — nothing fails silently
+        'diagnostics': {
+            'parser': parser or 'regex',
+            'skipped_large': diagnostics.get('skipped_large', []),
+            'read_errors': diagnostics.get('read_errors', []),
+            'stat_errors': diagnostics.get('stat_errors', []),
+            'cache_hits': diagnostics.get('cache_hits', 0),
+            'parsed': diagnostics.get('parsed', 0),
         },
         'hubs': hub_list,
         'communities': comm_display,
