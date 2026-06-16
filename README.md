@@ -636,17 +636,18 @@ covered by the test suite.
 
 - **Incremental parse cache** (`.nodo/cache.json`): each file's imports are cached
   by content hash + parser mode, so a rescan only re-parses files that actually
-  changed. A cached run produces an **identical map** (graph + issues) to a clean
-  one — only the cache-hit counters in `diagnostics` differ; disable with
-  `--no-cache`.
+  changed. A cached run produces an **identical map** (graph + issues + knowledge)
+  to a clean one — only the run's `generated` timestamp and the cache-hit counters
+  in `diagnostics` differ; disable with `--no-cache`.
 - **Incremental detection cache** (`.nodo/detect-cache.json`): the issue list is
   reused when nothing that affects detection changed (every file's content hash +
   parser + lessons + detection config), so a no-op rescan skips the cross-file
   passes entirely. Byte-identical inputs → byte-identical issues, so reuse is
   always correct.
 - **Parallel reads** (`--jobs N`): the file-read pass can run on N threads for
-  large trees. Output is byte-identical to a single-threaded run (all downstream
-  work is order-deterministic); default is 1.
+  large trees. The resulting **map is identical** to a single-threaded run (all
+  downstream work is order-deterministic — only the `generated` timestamp varies,
+  as it does between any two runs); default is 1.
 - **Bounded output**: no single detector emits more than 25 findings before
   collapsing to a summary line, so the report stays readable on large repos.
 - **Nothing fails silently**: oversized/unreadable files are reported in the scan
