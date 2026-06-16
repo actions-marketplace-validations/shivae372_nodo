@@ -20,9 +20,20 @@ def available():
     return callgraph.available()
 
 
+def _clean_doc(s):
+    """First line of a docstring/comment, stripped of comment syntax and quotes."""
+    s = s.strip().strip('"\'`')
+    for pre in ('/**', '*/', '//', '#', '*'):
+        s = s.strip().lstrip(pre)
+    s = s.strip().strip('"\'`').strip()
+    first = next((ln.strip(' *') for ln in s.splitlines() if ln.strip(' *')), '')
+    return first[:120]
+
+
 def _symbols(rel, text):
-    """(symbols, inherits): symbols=[(name, kind, line)] (kind func/class/method);
-    inherits=[(class, base)] from extends/implements/superclasses."""
+    """(symbols, inherits): symbols=[(name, kind, start, end, doc)] (kind func/
+    class/method; doc = leading docstring/comment rationale or ''); inherits=
+    [(class, base)] from extends/implements/superclasses."""
     from . import ast_index
     ext = os.path.splitext(rel)[1].lower()
     parser = ast_index._get_parser(ext)
@@ -44,6 +55,27 @@ def _symbols(rel, text):
             return None
 
     is_py = ext == '.py'
+
+    def doc_of(n):
+        # rationale: Python body docstring, or a JS leading comment/jsdoc
+        if is_py:
+            body = field(n, 'body')
+            if body is not None:
+                for c in body.children:
+                    if c.is_named:
+                        if c.type == 'expression_statement' and c.children and \
+                                c.children[0].type == 'string':
+                            return _clean_doc(txt(c.children[0]))
+                        break
+            return ''
+        prev = n.prev_named_sibling if hasattr(n, 'prev_named_sibling') else None
+        if prev is not None and prev.type == 'comment':
+            return _clean_doc(txt(prev))
+        return ''
+
+    def add(syms, name, kind, n):
+        syms.append((name, kind, n.start_point[0] + 1, n.end_point[0] + 1, doc_of(n)))
+
     syms, inh = [], []
     for n in ast_index._walk(tree.root_node):
         t = n.type
@@ -51,12 +83,12 @@ def _symbols(rel, text):
             if t == 'function_definition':
                 nm = field(n, 'name')
                 if nm:
-                    syms.append((txt(nm), 'func', n.start_point[0] + 1))
+                    add(syms, txt(nm), 'func', n)
             elif t == 'class_definition':
                 nm = field(n, 'name')
                 if nm:
                     cname = txt(nm)
-                    syms.append((cname, 'class', n.start_point[0] + 1))
+                    add(syms, cname, 'class', n)
                     sup = field(n, 'superclasses')
                     if sup:
                         for c in sup.children:
@@ -66,16 +98,16 @@ def _symbols(rel, text):
             if t in ('function_declaration', 'generator_function_declaration'):
                 nm = field(n, 'name')
                 if nm and nm.type == 'identifier':
-                    syms.append((txt(nm), 'func', n.start_point[0] + 1))
+                    add(syms, txt(nm), 'func', n)
             elif t == 'method_definition':
                 nm = field(n, 'name')
                 if nm and nm.type in ('property_identifier', 'identifier'):
-                    syms.append((txt(nm), 'method', n.start_point[0] + 1))
+                    add(syms, txt(nm), 'method', n)
             elif t == 'class_declaration':
                 nm = field(n, 'name')
                 if nm:
                     cname = txt(nm)
-                    syms.append((cname, 'class', n.start_point[0] + 1))
+                    add(syms, cname, 'class', n)
                     for c in n.children:
                         if c.type == 'class_heritage':
                             for d in ast_index._walk(c):
@@ -87,7 +119,7 @@ def _symbols(rel, text):
                 nm, val = field(n, 'name'), field(n, 'value')
                 if (nm and nm.type == 'identifier' and val is not None
                         and val.type in ('arrow_function', 'function_expression', 'function')):
-                    syms.append((txt(nm), 'func', n.start_point[0] + 1))
+                    add(syms, txt(nm), 'func', n)
     return syms, inh
 
 
@@ -98,7 +130,8 @@ def build_symbol_graph(nodes, file_texts, cap=8000):
     from . import callgraph
     cg = callgraph.build_call_graph(nodes, file_texts, cap=cap)
 
-    by_file, defined, classes, inherits = defaultdict(list), set(), set(), []
+    by_file, defined, classes = defaultdict(list), set(), set()
+    inherits, contains = [], []
     for n in nodes:
         rel = n['rel']
         if os.path.splitext(rel)[1].lower() not in (_JSTS | {'.py'}):
@@ -107,15 +140,21 @@ def build_symbol_graph(nodes, file_texts, cap=8000):
         if not text:
             continue
         syms, inh = _symbols(rel, text)
+        cranges = [(nm, s, e) for nm, kind, s, e, _d in syms if kind == 'class']
         seen_names = set()
-        for nm, kind, line in syms:
+        for nm, kind, start, end, doc in syms:
             if nm in seen_names:
                 continue
             seen_names.add(nm)
-            by_file[rel].append({'name': nm, 'kind': kind, 'line': line})
+            by_file[rel].append({'name': nm, 'kind': kind, 'line': start, 'doc': doc})
             defined.add(nm)
             if kind == 'class':
                 classes.add(nm)
+        for nm, kind, start, end, doc in syms:           # symbol → enclosing class (innermost)
+            for cn, cs, ce in sorted(cranges, key=lambda r: r[2] - r[1]):
+                if cs <= start <= ce and cn != nm:
+                    contains.append((rel, cn, nm))
+                    break
         inherits.extend((cls, base) for cls, base in inh)
 
     gnodes, gedges, sym_id = [], [], {}
@@ -124,9 +163,14 @@ def build_symbol_graph(nodes, file_texts, cap=8000):
         for s in by_file[rel]:
             sid = f'sym:{rel}:{s["name"]}'
             sym_id.setdefault(s['name'], sid)        # name → first definition
-            gnodes.append({'id': sid, 'label': s['name'], 'kind': 'symbol',
-                           'symtype': s['kind'], 'rel': rel, 'line': s['line']})
+            node = {'id': sid, 'label': s['name'], 'kind': 'symbol',
+                    'symtype': s['kind'], 'rel': rel, 'line': s['line']}
+            if s.get('doc'):
+                node['rationale'] = s['doc']
+            gnodes.append(node)
             gedges.append({'from': f'file:{rel}', 'to': sid, 'type': 'defines'})
+    for rel, cn, meth in contains:                       # class → method containment
+        gedges.append({'from': f'sym:{rel}:{cn}', 'to': f'sym:{rel}:{meth}', 'type': 'contains'})
     for e in cg.get('edges', []):
         a, b = sym_id.get(e['from']), sym_id.get(e['to'])
         if a and b and a != b:
@@ -149,6 +193,7 @@ def build_symbol_graph(nodes, file_texts, cap=8000):
               'classes': len(classes),
               'defines': sum(1 for e in ded if e['type'] == 'defines'),
               'calls': sum(1 for e in ded if e['type'] == 'calls'),
+              'contains': sum(1 for e in ded if e['type'] == 'contains'),
               'inherits': sum(1 for e in ded if e['type'] == 'inherits')}
     return {'available': True, 'nodes': gnodes, 'edges': ded,
             'by_file': {k: by_file[k] for k in sorted(by_file)}, 'counts': counts}

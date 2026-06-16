@@ -1298,7 +1298,7 @@ class TestRoadmapBatch(unittest.TestCase):
         symtypes = {n.get("symtype") for n in sg["nodes"] if n["kind"] == "symbol"}
         self.assertTrue({"class", "func", "method"} <= symtypes)        # first-class symbol nodes
         etypes = {e["type"] for e in sg["edges"]}
-        self.assertTrue({"defines", "calls", "inherits"} <= etypes)     # all three edge kinds
+        self.assertTrue({"defines", "calls", "inherits", "contains"} <= etypes)  # incl. class→method
         inh = {(e["from"].split(":")[-1], e["to"].split(":")[-1])
                for e in sg["edges"] if e["type"] == "inherits"}
         self.assertIn(("Dog", "Animal"), inh)
