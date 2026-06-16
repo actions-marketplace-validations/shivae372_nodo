@@ -196,8 +196,9 @@ python nodo.py . --self-check
 
 Languages nodo does NOT understand yet (no parser / no lesson):
   • .zig  — 14 file(s)
-  → Teach it: write a lesson (extensions + def/import regex) and run
-    `nodo . --teach lesson.json`. A starter template is below.
+  → nodo auto-drafted a lesson for '.zig' from your files (37 definition(s),
+    9 import(s) across 6 sample(s)). It's a DRAFT — review the regexes below,
+    save as lesson.json, then `nodo . --teach lesson.json`.
 
 Local imports nodo could not resolve to a file:
   • src/app.ts  (2: @generated/api, ~/legacy/shim)
@@ -210,12 +211,16 @@ from — a grammar gap), and **unresolved local imports** (relative paths that d
 resolve to an edge). Every normal scan prints a one-line nudge when gaps exist, and
 records them in `nodo-context.json → diagnostics.learning_gaps`.
 
-**2. Claude tutors it** — Claude reads a couple of the flagged files and writes a
-**lesson**: how that language declares definitions and imports (regex with one
-capture group each), or a correction. `--teach` validates and persists it:
+**2. Claude tutors it** — and nodo does most of the writing. `--self-check` prints
+an **auto-drafted lesson**: it induces the def/import regexes from your actual
+files (a deterministic keyword library, every pattern validated against the
+samples — no LLM) and reports how many symbols/imports the draft would extract, so
+it's self-evidencing. Claude reads a couple of the files, **confirms or refines**
+the draft (or adds a `keep_alive` / `resolver_hint` correction), and `--teach`
+validates and persists it:
 
 ```jsonc
-// lesson.json  — taught by Claude after looking at the .zig files
+// lesson.json  — nodo's auto-draft, confirmed by Claude against the .zig files
 {
   "languages": {
     "zig": {

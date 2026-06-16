@@ -120,8 +120,11 @@ class _State:
         out = hc['report']
         if hc['teach_template']:
             import json
-            out += ('\n\nStarter lesson (fill the regexes, then call nodo_teach or '
-                    '`nodo . --teach`):\n' + json.dumps(hc['teach_template'], indent=2))
+            induced = (hc.get('draft_stats') or {}).get('induced')
+            label = ('Auto-drafted lesson (induced from your files — review, then call '
+                     'nodo_teach with it):' if induced else
+                     'Starter lesson (fill the regexes, then call nodo_teach with it):')
+            out += '\n\n' + label + '\n' + json.dumps(hc['teach_template'], indent=2)
         return out
 
     def teach(self, lesson):

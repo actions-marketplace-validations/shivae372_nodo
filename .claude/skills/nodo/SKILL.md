@@ -195,10 +195,14 @@ nodo gets smarter about this codebase every time.
 **The loop:**
 1. **Diagnose** — run `python /path/to/nodo/nodo.py . --self-check` (or call
    `nodo_self_check`). It prints unknown languages, silent files, and unresolved
-   local imports, with a ready-to-fill lesson template.
-2. **Tutor** — actually READ a couple of the flagged files, then write a lesson
-   (`lesson.json`). You're the brain here: derive the regexes from what the code
-   really looks like, one capture group each.
+   local imports — and for an unknown language it **auto-drafts a lesson**: the
+   def/import regexes are induced from the real files (deterministic), and it
+   reports how many symbols/imports the draft would extract so you can judge it.
+2. **Tutor — confirm or refine the draft** — READ a couple of the flagged files
+   and check the auto-drafted regexes against what the code actually looks like.
+   Often you just confirm it; refine when the draft missed a declaration shape.
+   You're still the brain — verify, don't rubber-stamp. Derive each regex from
+   the real code, one capture group each (symbol name / import target).
    - `languages.<name>`: `extensions`, `def_patterns` (capture the symbol name),
      `import_patterns` (capture the import target), optional `category`.
    - `keep_alive`: a file path or symbol to stop flagging as dead (use only after

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from . import scanner
 from . import lessons as _lessons
+from . import induce as _induce
 
 # Extensions that are legitimately structure-free (no defs/imports expected) —
 # never flagged as a "silent extraction" gap.
@@ -119,9 +120,16 @@ def self_check(root, nodes, edges, file_texts, lessons, ignore_dirs):
                      'detail': f"{rel}: {cnt} local import(s) didn't resolve "
                                f"(e.g. {', '.join(ex)}) — a resolver_hint can fix these."})
 
-    report = _format(root, gaps, unknown)
-    template = _teach_template(unknown[0][0] if unknown else None)
-    return {'gaps': gaps, 'report': report, 'teach_template': template}
+    # auto-draft a lesson for the top unknown language by inducing regexes from
+    # its real files (deterministic) — so teaching is confirm-not-write.
+    template, draft_stats = None, None
+    if unknown:
+        top_ext = unknown[0][0]
+        samples = _sample_texts(root, ignore_dirs, top_ext)
+        template, draft_stats = _induce.draft_lesson(top_ext, samples)
+    report = _format(root, gaps, unknown, draft_stats)
+    return {'gaps': gaps, 'report': report, 'teach_template': template,
+            'draft_stats': draft_stats}
 
 
 def scanner_defs_count(rel, text):
@@ -133,25 +141,28 @@ def scanner_defs_count(rel, text):
         return 0
 
 
-def _teach_template(ext):
-    if not ext:
-        return None
-    name = ext.lstrip('.')
-    return {
-        'languages': {
-            name: {
-                'extensions': [ext],
-                'category': 'lib',
-                'def_patterns': ['<regex with ONE capture group around the symbol name>'],
-                'import_patterns': ['<regex with ONE capture group around the import target>'],
-                'note': f'Taught by Claude: how {name} declares definitions and imports.',
-                'taught_by': 'claude',
-            }
-        }
-    }
+def _sample_texts(root, ignore_dirs, ext, max_files=6, max_bytes=60000):
+    """Read up to `max_files` files of one extension (sorted, capped) so a draft
+    lesson can be induced from the real source — deterministic and bounded."""
+    root = Path(root).resolve()
+    found = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames
+                       if d not in ignore_dirs and (not d.startswith('.') or d == '.github')]
+        for fn in filenames:
+            if os.path.splitext(fn)[1].lower() == ext:
+                found.append(os.path.join(dirpath, fn))
+    found.sort()
+    out = []
+    for p in found[:max_files]:
+        try:
+            out.append(Path(p).read_text(encoding='utf-8', errors='ignore')[:max_bytes])
+        except Exception:
+            pass
+    return out
 
 
-def _format(root, gaps, unknown):
+def _format(root, gaps, unknown, draft_stats=None):
     out = ['[nodo · self-check]']
     if not gaps:
         out.append('')
@@ -167,8 +178,15 @@ def _format(root, gaps, unknown):
         out.append('Languages nodo does NOT understand yet (no parser / no lesson):')
         for g in by['unknown_language']:
             out.append(f"  • {g['ext']}  — {g['files']} file(s)")
-        out.append("  → Teach it: write a lesson (extensions + def/import regex) and run")
-        out.append("    `nodo . --teach lesson.json`. A starter template is below.")
+        if draft_stats and draft_stats.get('induced'):
+            out.append(f"  → nodo auto-drafted a lesson for '{unknown[0][0]}' from your files "
+                       f"({draft_stats['defs']} definition(s), {draft_stats['imports']} "
+                       f"import(s) across {draft_stats['samples']} sample(s)). It's a DRAFT —")
+            out.append("    review the regexes below, save as lesson.json, then "
+                       "`nodo . --teach lesson.json`.")
+        else:
+            out.append("  → Teach it: write a lesson (extensions + def/import regex) and run")
+            out.append("    `nodo . --teach lesson.json`. A starter template is below.")
 
     if 'silent_extraction' in by:
         out.append('')
