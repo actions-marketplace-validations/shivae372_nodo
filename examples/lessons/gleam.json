@@ -1,0 +1,17 @@
+{
+  "languages": {
+    "gleam": {
+      "extensions": [".gleam"],
+      "category": "lib",
+      "def_patterns": [
+        "(?m)^\\s*(?:pub\\s+)?fn\\s+([a-z_]\\w*)",
+        "(?m)^\\s*(?:pub\\s+)?(?:type|const)\\s+([A-Za-z_]\\w*)"
+      ],
+      "import_patterns": [
+        "(?m)^\\s*import\\s+([\\w/]+)"
+      ],
+      "note": "Gleam: pub fn / fn, type / const definitions; import statements. Teach with: nodo . --teach examples/lessons/gleam.json",
+      "taught_by": "community"
+    }
+  }
+}

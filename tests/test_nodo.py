@@ -1192,6 +1192,29 @@ class TestRoadmapBatch(unittest.TestCase):
         nodes, edges, texts = scanner.build_graph(d)
         self.assertIn("compute", symbols.query_symbol(nodes, texts, "compute") or "")
 
+    def test_reassigned_import_detector(self):
+        d = make_project({
+            "src/cfg.js": "export let config = {a:1};\nexport const VERSION='1';\n",
+            "src/bug.js": 'import { config } from "./cfg";\nconfig = {a:2};\nexport const go=()=>config;\n',
+            "src/prop.js": 'import { config } from "./cfg";\nconfig.a = 9;\nexport const f=()=>config.a;\n',
+            "src/param.js": 'import { VERSION } from "./cfg";\nfunction h(VERSION){ VERSION="x"; return VERSION; }\nexport const g=h;\n',
+        })
+        nodes, edges, texts = scanner.build_graph(d)
+        flagged = [i["file"] for i in detectors.detect_all(nodes, edges, texts)
+                   if i["type"] == "Reassignment of an imported binding"]
+        self.assertEqual(flagged, ["src/bug.js"])     # only the real reassign — no FP on prop/param
+
+    def test_shared_mutable_export_detector(self):
+        d = make_project({
+            "src/cfg.js": "export let config = {a:1};\nexport const VERSION='1';\n",
+            "src/use.js": 'import { config, VERSION } from "./cfg";\nexport const f=()=>config.a+VERSION;\n',
+        })
+        nodes, edges, texts = scanner.build_graph(d)
+        mut = [i for i in detectors.detect_all(nodes, edges, texts)
+               if i["type"] == "Shared mutable export"]
+        self.assertEqual([i["file"] for i in mut], ["src/cfg.js"])
+        self.assertIn("config", mut[0]["detail"])     # the mutable export, not the const VERSION
+
     def test_community_lessons_are_valid(self):
         from nodo import lessons
         ldir = Path(__file__).resolve().parent.parent / "examples" / "lessons"

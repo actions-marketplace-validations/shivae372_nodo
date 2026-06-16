@@ -1,0 +1,17 @@
+{
+  "languages": {
+    "crystal": {
+      "extensions": [".cr"],
+      "category": "lib",
+      "def_patterns": [
+        "(?m)^\\s*(?:private\\s+|protected\\s+)?def\\s+([A-Za-z_]\\w*[!?]?)",
+        "(?m)^\\s*(?:abstract\\s+)?(?:class|module|struct|enum)\\s+([A-Z]\\w*)"
+      ],
+      "import_patterns": [
+        "(?m)^\\s*require\\s+\"([^\"]+)\""
+      ],
+      "note": "Crystal: def methods, class/module/struct/enum types; require \"...\". Teach with: nodo . --teach examples/lessons/crystal.json",
+      "taught_by": "community"
+    }
+  }
+}
