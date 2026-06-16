@@ -757,6 +757,122 @@ class TestAST(unittest.TestCase):
                 self.assertNotIn(mustnot, names, "%s: %r (a call/param) wrongly captured" % (f, mustnot))
 
 
+# ── Parse-tree cache (advanced-mode perf: one parse per file, bounded memory) ──
+class TestParseCache(unittest.TestCase):
+    SRC = ("import os\n"
+           "def foo(a, b):\n"
+           "    \"\"\"doc\"\"\"\n"
+           "    return bar(a)\n"
+           "def bar(x):\n"
+           "    return x\n"
+           "class C(Base):\n"
+           "    def m(self):\n"
+           "        return foo(1, 2)\n")
+
+    def _counting(self, ai):
+        """Install a parse-counting proxy for '.py'; returns the proxy."""
+        real = ai._get_parser('.py')
+
+        class _Counter:
+            def __init__(self, inner):
+                self.inner, self.n = inner, 0
+
+            def parse(self, src, *a, **k):
+                self.n += 1
+                return self.inner.parse(src, *a, **k)
+
+        proxy = _Counter(real)
+        ai._PARSERS['.py'] = proxy
+        return proxy
+
+    def test_one_parse_shared_across_extractors(self):
+        from nodo import ast_index as ai, callgraph as cg, symgraph as sg
+        if not ai.available():
+            self.skipTest("tree-sitter not installed")
+        saved = ai._PARSERS.get('.py')
+        try:
+            proxy = self._counting(ai)
+            ai._clear_tree_cache()
+            # five distinct extractors, identical (ext, content) → exactly one parse
+            ai.extract_imports_ast('x.py', self.SRC)
+            ai.extract_defs_ast('x.py', self.SRC)
+            ai.extract_signatures_ast('x.py', self.SRC)
+            sg._symbols('x.py', self.SRC)
+            cg._defs_and_calls('x.py', self.SRC)
+            self.assertEqual(proxy.n, 1, "expected the file to be parsed once and reused")
+            # genuinely different content must parse again
+            ai.extract_defs_ast('y.py', self.SRC + "def baz():\n    return 0\n")
+            self.assertEqual(proxy.n, 2)
+        finally:
+            if saved is not None:
+                ai._PARSERS['.py'] = saved
+            else:
+                ai._PARSERS.pop('.py', None)
+            ai._clear_tree_cache()
+
+    def test_cache_does_not_change_results(self):
+        from nodo import ast_index as ai
+        if not ai.available():
+            self.skipTest("tree-sitter not installed")
+        ai._clear_tree_cache()
+        first = ai.extract_defs_ast('z.py', self.SRC)
+        second = ai.extract_defs_ast('z.py', self.SRC)   # served from cache
+        self.assertEqual(first, second)
+        self.assertIn('foo', {n for n, _ in first})
+        ai._clear_tree_cache()
+
+    def test_truncate_equals_build_at_cap(self):
+        # Advanced mode builds the call graph once at a high cap then derives the
+        # canonical view via truncate(); that MUST equal building at the low cap, or
+        # callgraph.json / hubs would drift. Edges are sorted before capping, so the
+        # smaller graph is an exact prefix of the larger one.
+        from nodo import ast_index as ai, callgraph as cg
+        if not ai.available():
+            self.skipTest("tree-sitter not installed")
+        lines = []
+        for i in range(60):
+            callees = " + ".join("f%d(x)" % j for j in range(max(0, i - 8), i)) or "x"
+            lines.append("def f%d(x):\n    return %s" % (i, callees))
+        ft = {"syn.py": "\n".join(lines) + "\n"}
+        nodes = [{"rel": "syn.py"}]
+        prev_ast = scanner._USE_AST
+        scanner.enable_ast()                 # build_call_graph needs AST active
+        try:
+            full = cg.build_call_graph(nodes, ft, cap=10000)
+            self.assertGreater(len(full["edges"]), 100)   # enough edges to force truncation
+            for cap in (5, 17, 40, 123):
+                built = cg.build_call_graph(nodes, ft, cap=cap)
+                trunc = cg.truncate(full, cap)
+                self.assertEqual(built["edges"], trunc["edges"])
+                self.assertEqual(built["callers"], trunc["callers"])
+                self.assertEqual(built["callees"], trunc["callees"])
+            self.assertEqual(built["def_count"], trunc["def_count"])
+        finally:
+            scanner._USE_AST = prev_ast
+
+    def test_bounded_memory(self):
+        from nodo import ast_index as ai
+        if not ai.available():
+            self.skipTest("tree-sitter not installed")
+        max_b, skip = ai._TREE_CACHE_MAX_BYTES, ai._TREE_CACHE_SKIP_OVER
+        try:
+            ai._clear_tree_cache()
+            ai._TREE_CACHE_MAX_BYTES = 300     # tiny budget forces LRU eviction
+            ai._TREE_CACHE_SKIP_OVER = 1000
+            for i in range(40):
+                ai.extract_defs_ast('f%d.py' % i, "def g%d():\n    return %d\n" % (i, i))
+            self.assertLessEqual(ai._TREE_CACHE_BYTES, ai._TREE_CACHE_MAX_BYTES)
+            # a single file bigger than the skip threshold is never cached
+            ai._clear_tree_cache()
+            ai._TREE_CACHE_SKIP_OVER = 10
+            ai.extract_defs_ast('big.py', "def huge():\n" + "    x = 1\n" * 50)
+            self.assertEqual(len(ai._TREE_CACHE), 0)
+            self.assertEqual(ai._TREE_CACHE_BYTES, 0)
+        finally:
+            ai._TREE_CACHE_MAX_BYTES, ai._TREE_CACHE_SKIP_OVER = max_b, skip
+            ai._clear_tree_cache()
+
+
 # ── Determinism (hash-seed independence) ──────────────────────────────────────
 class TestDeterminism(unittest.TestCase):
     def test_output_is_hash_seed_independent(self):

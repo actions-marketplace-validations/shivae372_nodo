@@ -17,11 +17,79 @@ look like false orphans.
 """
 import os
 import re
+import hashlib
+import threading
+from collections import OrderedDict
 
 _PARSERS = {}          # ext -> parser | None (cache)
 _CHECKED = False
 _AVAILABLE = False
 _GET_PARSER = None
+
+# --- Parse-tree cache -------------------------------------------------------
+# In advanced mode several modules (imports, defs, signatures, call graph,
+# symbol graph) each need the AST of the same file, so a naive implementation
+# re-parses every file ~6×. We cache parse trees by (ext, content-hash) and
+# reuse them within a run, so each file is parsed once. Trees are read-only
+# here (no `tree.edit()`), so sharing one across call sites is always sound.
+#
+# The cache is BOUNDED so a giant repo can't exhaust memory: it tracks total
+# cached source bytes (a proxy for tree memory) and evicts least-recently-used
+# entries past the budget; single files above a size threshold are never cached.
+# On a repo that fits the budget we get full within-run reuse; past it we evict
+# and degrade gracefully to the old re-parse behavior — never worse than before.
+_TREE_CACHE = OrderedDict()        # (ext, digest) -> (tree, src_bytes)
+_TREE_CACHE_LOCK = threading.Lock()
+_TREE_CACHE_BYTES = 0
+# Budget is measured in SOURCE bytes, but a parse tree costs several× its source
+# in memory, so this is a deliberately conservative proxy. 64 MiB of source holds
+# the entire working set of even very large repos (e.g. Apache Arrow's ~39 MiB of
+# C++/Python/Ruby) for full within-run reuse, while capping worst-case tree memory
+# on pathological monorepos — past the budget we evict LRU and simply re-parse.
+_TREE_CACHE_MAX_BYTES = 64 * 1024 * 1024      # ~64 MB of source-equivalent
+_TREE_CACHE_SKIP_OVER = 2 * 1024 * 1024       # never cache a single file > 2 MB
+
+
+def _clear_tree_cache():
+    """Drop all cached parse trees (e.g. when the grammar mapping changes)."""
+    global _TREE_CACHE_BYTES
+    with _TREE_CACHE_LOCK:
+        _TREE_CACHE.clear()
+        _TREE_CACHE_BYTES = 0
+
+
+def _parse(ext, text):
+    """Parse `text` with the grammar for `ext`; return (tree, src_bytes) or
+    (None, None). Reuses a cached tree for identical (ext, content) within a run
+    so every module shares one parse per file. Never raises."""
+    global _TREE_CACHE_BYTES
+    parser = _get_parser(ext)
+    if parser is None:
+        return None, None
+    try:
+        src = text.encode('utf-8')
+    except Exception:
+        return None, None
+    key = (ext, hashlib.blake2b(src, digest_size=16).digest())
+    with _TREE_CACHE_LOCK:
+        hit = _TREE_CACHE.get(key)
+        if hit is not None:
+            _TREE_CACHE.move_to_end(key)        # mark most-recently-used
+            return hit
+    try:
+        tree = parser.parse(src)                # parse outside the lock (the hot part)
+    except Exception:
+        return None, None
+    n = len(src)
+    if n <= _TREE_CACHE_SKIP_OVER:
+        with _TREE_CACHE_LOCK:
+            if key not in _TREE_CACHE:
+                _TREE_CACHE[key] = (tree, src)
+                _TREE_CACHE_BYTES += n
+                while _TREE_CACHE_BYTES > _TREE_CACHE_MAX_BYTES and len(_TREE_CACHE) > 1:
+                    _k, (_t, ev) = _TREE_CACHE.popitem(last=False)   # evict LRU
+                    _TREE_CACHE_BYTES -= len(ev)
+    return tree, src
 
 # ext -> tree-sitter language name (as known to tree_sitter_language_pack)
 _LANG_NAME = {
@@ -51,6 +119,7 @@ def set_lesson_grammars(mapping):
     for e in list(_PARSERS):
         if e in _LESSON_LANG:
             _PARSERS.pop(e, None)
+    _clear_tree_cache()          # parser mapping changed → cached trees may be stale
 
 
 def _grammar_name(ext):
@@ -103,13 +172,10 @@ def extract_imports_ast(rel, text):
     """Return a list of raw import target strings via tree-sitter, or None to
     signal the caller to use the regex path. Catches everything."""
     ext = os.path.splitext(rel)[1].lower()
-    parser = _get_parser(ext)
-    if parser is None:
+    tree, src = _parse(ext, text)
+    if tree is None:
         return None
     try:
-        src = text.encode('utf-8')
-        tree = parser.parse(src)
-
         def txt(node):
             return src[node.start_byte:node.end_byte].decode('utf-8', 'ignore')
 
@@ -273,13 +339,10 @@ def extract_defs_ast(rel, text):
     More accurate than regex: real names, no matches inside strings/comments, and
     only function/class-valued consts (not every local literal)."""
     ext = os.path.splitext(rel)[1].lower()
-    parser = _get_parser(ext)
-    if parser is None:
+    tree, src = _parse(ext, text)
+    if tree is None:
         return None
     try:
-        src = text.encode('utf-8')
-        tree = parser.parse(src)
-
         def txt(node):
             return src[node.start_byte:node.end_byte].decode('utf-8', 'ignore')
 
@@ -316,13 +379,10 @@ def extract_calls_ast(rel, text):
     ext = os.path.splitext(rel)[1].lower()
     if ext not in _JS:
         return None
-    parser = _get_parser(ext)
-    if parser is None:
+    tree, src = _parse(ext, text)
+    if tree is None:
         return None
     try:
-        src = text.encode('utf-8')
-        tree = parser.parse(src)
-
         def txt(node):
             return src[node.start_byte:node.end_byte].decode('utf-8', 'ignore')
 
@@ -369,14 +429,11 @@ def extract_signatures_ast(rel, text):
     is present (so callers can pass any number). This is what makes an arg-count
     contract check SAFE — regex can't count TS params, a parse tree can."""
     ext = os.path.splitext(rel)[1].lower()
-    parser = _get_parser(ext)
-    if parser is None:
-        return None
     is_py = ext in _PY
+    tree, src = _parse(ext, text)
+    if tree is None:
+        return None
     try:
-        src = text.encode('utf-8')
-        tree = parser.parse(src)
-
         def txt(node):
             return src[node.start_byte:node.end_byte].decode('utf-8', 'ignore')
 
