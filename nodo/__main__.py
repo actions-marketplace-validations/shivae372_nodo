@@ -107,6 +107,12 @@ def main(argv=None):
     parser.add_argument('--what-if', metavar='FILE|SYMBOL', default=None, dest='what_if',
                         help='Impact simulation: what a change to this file (transitive importers) '
                              'or function (transitive callers) could affect.')
+    parser.add_argument('--smart', action='store_true',
+                        help='Auto-pick the depth: a cheap heuristic chooses vibe-coder (fast) or '
+                             'advanced (--deep) from project size, language mix, and docs/PDFs.')
+    parser.add_argument('--export', metavar='FORMAT', default=None, choices=['mermaid', 'dot'],
+                        help='Export the call graph as Mermaid or Graphviz DOT into .nodo/, then '
+                             'exit. Needs tree-sitter (or --deep).')
     parser.add_argument('--benchmark', action='store_true',
                         help='Compare regex vs tree-sitter parsing (timing + edges) and exit.')
     parser.add_argument('--mcp', action='store_true',
@@ -165,6 +171,37 @@ def main(argv=None):
     learned = _lessons_mod.load_lessons(out_dir)
     if _lessons_mod.has_content(learned):
         scanner.enable_lessons(learned)
+
+    if args.smart:                # auto-pick depth from a cheap pre-scan of signals
+        mode, why = _smart_choose(root, _ignore_dirs(cfg, args, out_dir, root))
+        if mode == 'deep':
+            args.deep = args.full = args.multimodal = True
+            if not args.no_ast:
+                from . import ast_index
+                if ast_index.available():
+                    scanner.enable_ast()
+        print(f'[nodo] smart: {mode} mode ({why})', file=sys.stderr)
+
+    if args.export:
+        ignore_dirs = _ignore_dirs(cfg, args, out_dir, root)
+        nodes, edges, file_texts = build_graph(
+            root, ignore_dirs=ignore_dirs, respect_gitignore=not args.no_gitignore,
+            max_file_kb=cfg.get('max_file_kb', 512))
+        from . import callgraph as _cg
+        if not _cg.available():
+            print('--export needs tree-sitter (pip install tree-sitter '
+                  'tree-sitter-language-pack) or run with --deep.', file=sys.stderr)
+            return 1
+        cg = _cg.build_call_graph(nodes, file_texts)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if args.export == 'mermaid':
+            p = out_dir / 'nodo-callgraph.mmd'
+            p.write_text(_cg.to_mermaid(cg), encoding='utf-8')
+        else:
+            p = out_dir / 'nodo-callgraph.dot'
+            p.write_text(_cg.to_dot(cg), encoding='utf-8')
+        print(f"Exported call graph ({len(cg.get('edges', []))} edges) → {p}")
+        return 0
 
     if args.teach:
         teach_path = Path(args.teach)
@@ -453,6 +490,29 @@ def main(argv=None):
         webbrowser.open(Path(result['html']).resolve().as_uri())
 
     return 0
+
+
+def _smart_choose(root, ignore):
+    """Cheap pre-scan heuristic → ('deep'|'vibe', reason). Goes deep for larger,
+    multi-language, or doc/PDF-heavy projects where the semantic layer pays off;
+    stays in fast vibe mode for small single-language repos."""
+    import os
+    src = list(scanner.discover_files(Path(root), ignore))
+    nfiles = len(src)
+    exts = {os.path.splitext(r)[1].lower() for _, r in src}
+    ndocs = len(scanner.discover_docs(Path(root), ignore))
+    npdf = sum(1 for _ in scanner._walk(Path(root), ignore, {'.pdf'}, 51200))
+    why = []
+    if nfiles >= 40:
+        why.append(f'{nfiles} files')
+    if len(exts) >= 4:
+        why.append(f'{len(exts)} languages')
+    if npdf:
+        why.append(f'{npdf} PDF(s)')
+    if ndocs >= 8:
+        why.append(f'{ndocs} docs')
+    deep = bool(why)
+    return ('deep' if deep else 'vibe', ', '.join(why) or 'small single-language project')
 
 
 def _ignore_dirs(cfg, args, out_dir, root=None):

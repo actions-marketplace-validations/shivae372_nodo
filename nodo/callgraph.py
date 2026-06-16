@@ -12,6 +12,7 @@ a call to `foo()` links to a project `foo` definition), not by full type
 resolution — fast, private, no LLM. Claude reasons over the result.
 """
 import os
+import re
 from collections import defaultdict
 
 _JSTS = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.mts', '.cts'}
@@ -143,3 +144,30 @@ def top_hubs(cg, n=10):
     """Most-called functions (call-graph in-degree) — semantic load-bearing fns."""
     deg = sorted(cg.get('callers', {}).items(), key=lambda kv: (-len(kv[1]), kv[0]))
     return [(name, len(callers)) for name, callers in deg[:n]]
+
+
+def to_mermaid(cg, max_edges=200):
+    """Render the call graph as a Mermaid flowchart (paste into Markdown / PRs)."""
+    def nid(s):
+        return 'n_' + re.sub(r'\W', '_', s)
+    lines = ['flowchart LR']
+    seen = set()
+    for e in cg.get('edges', [])[:max_edges]:
+        a, b = e['from'], e['to']
+        for x in (a, b):
+            if x not in seen:
+                seen.add(x)
+                lines.append(f'  {nid(x)}["{x}()"]')
+        lines.append(f'  {nid(a)} --> {nid(b)}')
+    return '\n'.join(lines) + '\n'
+
+
+def to_dot(cg, max_edges=600):
+    """Render the call graph as Graphviz DOT (`dot -Tsvg`)."""
+    lines = ['digraph callgraph {', '  rankdir=LR;', '  node [shape=box, fontsize=10];']
+    for e in cg.get('edges', [])[:max_edges]:
+        a = e['from'].replace('"', '')
+        b = e['to'].replace('"', '')
+        lines.append(f'  "{a}" -> "{b}";')
+    lines.append('}')
+    return '\n'.join(lines) + '\n'

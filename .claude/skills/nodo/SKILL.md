@@ -16,6 +16,37 @@ on any project and any language — there is nothing project-specific to configu
 - `nodo-context.md` — token-cheap summary.
 - `nodo-issues.txt` — plain-text issue list.
 
+## Command map (which command, when) — your full toolbox
+
+Run the launcher as `python /path/to/nodo/nodo.py . <flag>`. Default to the cheap
+options; reach for `--deep` only when depth is wanted.
+
+| Goal | Command |
+|---|---|
+| Map the repo (fast, daily) | *(no flag)* — vibe mode |
+| Deep semantic map (symbols, call graph, surprises) | `--deep` |
+| Let nodo pick the depth for you | `--smart` |
+| One-paragraph architecture read | `--vibe` |
+| Ask anything in English | `--ask "…"` (routes to the right answer below) |
+| Blast radius of a file / symbol refs | `--query <file\|Symbol>` |
+| What a change could break | `--what-if <file\|fn>` |
+| A function's callers + callees | `--calls <fn>` |
+| Import path between two files | `--path A B` |
+| Where a concept lives (code + docs) | `--explain "<concept>"` |
+| Knowledge topics (docs/PDFs) | `--topics` |
+| What nodo can't parse (then teach it) | `--self-check` → `--teach lesson.json` |
+| Export call graph for a diagram | `--export mermaid` / `--export dot` |
+| Wire into Claude / Cursor / CI | `--install` (hook + AGENTS.md + Cursor rule + .mcp.json) |
+| Live tools mid-session | `--mcp` (19 tools — see below) |
+
+**Mental model (say this to users if they ask):** nodo is the *deterministic,
+offline scaffold* — it extracts the graph, symbols, issues, concepts, and
+surprising connections with zero guessing. **You are the reasoning layer**: read
+nodo's evidence and supply the judgment, the "why," the vision on diagrams, and
+the fixes. nodo never calls an LLM and nothing leaves the machine — so answers stay
+grounded, private, and reproducible. When nodo is blind (a new language, a false
+positive), you *teach* it (`--teach`) and it remembers.
+
 ## Steps
 
 ### Step 1 — Run Nodo on the project root (pick a mode)

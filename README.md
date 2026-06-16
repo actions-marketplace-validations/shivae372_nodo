@@ -81,9 +81,10 @@ deterministically** (no embeddings, no LLM, nothing leaves your machine) and let
 mode already gives you. Advanced mode also surfaces:
 
 - a **symbol-level graph** (`.nodo/nodo-symbols.json`) — functions, classes and
-  methods as first-class nodes with `defines` / `calls` / `inherits` edges, both
-  hierarchical (files → symbols) and flat. On `click` that's 1,300+ symbols and
-  59 inheritance edges,
+  methods as first-class nodes with `defines` / `calls` / `inherits` / `contains`
+  (class→method) edges, plus **rationale** (each symbol's docstring/leading
+  comment) — hierarchical (files → classes → methods) *and* flat. On `click`:
+  1,328 symbols, 442 containment, 59 inheritance edges,
 - a **function call graph** (`.nodo/nodo-callgraph.json`; trace any function with
   `--calls <fn>`, or ask *"what calls X / what does X call?"*),
 - **impact simulation** — `--what-if <file|fn>` shows the transitive importers /
@@ -103,6 +104,11 @@ offline. Surprises are scored with **betweenness centrality** (pure-stdlib Brand
 size-gated) so true bridges rank highest. (Community detection is pure-stdlib label
 propagation — no `igraph`/Leiden dependency — so "advanced" still needs nothing
 heavier than optional tree-sitter.)
+
+Not sure which mode? **`--smart`** picks for you — a cheap pre-scan reads project
+size, language mix, and docs/PDFs and runs vibe or `--deep` accordingly (it prints
+which and why). And the call graph exports to **Mermaid** or **Graphviz DOT**
+(`--export mermaid|dot`) to drop into a PR or render a diagram.
 
 **Both modes** also answer **`--vibe`** — a deterministic architectural read
 ("*hub-and-spoke around `app.ts`, layered, loosely coupled, carrying some debt*"):
@@ -557,6 +563,8 @@ nodo [PATH] [options]
   --explain CONCEPT    find the files & design docs related to a concept (BM25)
   --topics             print knowledge-graph topics (doc/PDF communities), then exit
   --vibe               print a deterministic architectural "vibe check", then exit
+  --smart              auto-pick vibe vs --deep from project size / languages / docs
+  --export FORMAT      export the call graph as `mermaid` or `dot`, then exit
   --hook               install a Claude Code SessionStart hook, then exit
   --install            wire the map into Claude + Cursor + AGENTS.md (+ MCP), then exit
   --mcp                run as an MCP server (stdio) — agents call nodo's tools live
