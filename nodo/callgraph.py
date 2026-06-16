@@ -40,13 +40,8 @@ def _defs_and_calls(rel, text):
     via the shared def-type matcher + name resolver; bare-identifier calls only."""
     from . import ast_index
     ext = os.path.splitext(rel)[1].lower()
-    parser = ast_index._get_parser(ext)
-    if parser is None:
-        return [], []
-    try:
-        src = text.encode('utf-8')
-        tree = parser.parse(src)
-    except Exception:
+    tree, src = ast_index._parse(ext, text)      # shared, cached parse (one per file/run)
+    if tree is None:
         return [], []
 
     def txt(n):
@@ -116,6 +111,26 @@ def build_call_graph(nodes, file_texts, cap=20000):
             'callers': {k: sorted(v) for k, v in callers.items()},
             'callees': {k: sorted(v) for k, v in callees.items()},
             'def_count': len(defined)}
+
+
+def truncate(cg, cap):
+    """Return a view of `cg` keeping only its first `cap` edges, with callers/callees
+    recomputed to match. Because build_call_graph sorts edges before capping, the
+    first `cap` of a larger graph are exactly the edges it would have produced at that
+    cap — so advanced mode can build the graph ONCE at a high cap (for the symbol
+    graph) and derive the smaller canonical call graph from it, with no second parse
+    and byte-identical output."""
+    if not cg.get('available') or len(cg.get('edges', [])) <= cap:
+        return cg
+    edges = cg['edges'][:cap]
+    callers, callees = defaultdict(set), defaultdict(set)
+    for e in edges:
+        callees[e['from']].add(e['to'])
+        callers[e['to']].add(e['from'])
+    return {'available': True, 'edges': edges,
+            'callers': {k: sorted(v) for k, v in callers.items()},
+            'callees': {k: sorted(v) for k, v in callees.items()},
+            'def_count': cg.get('def_count', 0)}
 
 
 def query_symbol_calls(cg, symbol):

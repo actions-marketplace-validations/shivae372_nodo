@@ -749,8 +749,13 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
     if getattr(args, 'deep', False):
         import json as _json
         from . import callgraph as _cg, surprises as _sp, symgraph as _sg
-        cg = _cg.build_call_graph(nodes, file_texts)
-        sg = _sg.build_symbol_graph(nodes, file_texts)
+        # Build the call graph ONCE at the symbol layer's cap, then derive the
+        # canonical (default-cap) view for everything else. The symbol graph reuses
+        # the full graph (no second parse pass); callgraph.json and the hubs/insights
+        # below see the exact same edges they always have.
+        cg_full = _cg.build_call_graph(nodes, file_texts, cap=40000)
+        cg = _cg.truncate(cg_full, 20000)
+        sg = _sg.build_symbol_graph(nodes, file_texts, call_graph=cg_full)
         sur = _sp.build_surprises(u_nodes, u_edges, u_comm)
         ctx_path = out_dir / 'nodo-context.json'
         try:

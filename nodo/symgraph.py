@@ -72,13 +72,8 @@ def _symbols(rel, text):
     (C/C++/Go/Rust/Java/… not just JS/TS/Python) via the shared def-type matcher."""
     from . import ast_index
     ext = os.path.splitext(rel)[1].lower()
-    parser = ast_index._get_parser(ext)
-    if parser is None:
-        return [], []
-    try:
-        src = text.encode('utf-8')
-        tree = parser.parse(src)
-    except Exception:
+    tree, src = ast_index._parse(ext, text)      # shared, cached parse (one per file/run)
+    if tree is None:
         return [], []
 
     def txt(n):
@@ -129,12 +124,17 @@ def _symbols(rel, text):
     return syms, inh
 
 
-def build_symbol_graph(nodes, file_texts, cap=40000):
-    """Return {available, nodes, edges, by_file, counts}. Empty unless AST is active."""
+def build_symbol_graph(nodes, file_texts, cap=40000, call_graph=None):
+    """Return {available, nodes, edges, by_file, counts}. Empty unless AST is active.
+
+    `call_graph`: an already-built call graph (from `callgraph.build_call_graph`).
+    Advanced mode builds the call graph first, so passing it here avoids a second
+    full parse+assembly pass over every file. Omit it and one is built on demand."""
     if not available():
         return {'available': False, 'nodes': [], 'edges': [], 'by_file': {}, 'counts': {}}
     from . import callgraph
-    cg = callgraph.build_call_graph(nodes, file_texts, cap=cap)
+    cg = call_graph if (call_graph and call_graph.get('available')) \
+        else callgraph.build_call_graph(nodes, file_texts, cap=cap)
 
     by_file, defined, classes = defaultdict(list), set(), set()
     inherits, contains = [], []
