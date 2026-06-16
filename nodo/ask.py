@@ -38,6 +38,7 @@ _DESCRIBE = re.compile(r'\b(describe|show|what.?s\s+in|whats\s+in|contents?\s+of
                        r'read|see|explain)\b', re.I)
 _IMG_TYPES = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'pdf', 'mp4', 'mov'}
 _TOPIC = re.compile(r'\b(topics?|architecture|structure|map\s+of|what.?s\s+in\s+(this|the))\b', re.I)
+_CALLS = re.compile(r"\b(calls?|caller|callers|call\s*graph|call\s*sites?|invoke[sd]?|invokes)\b", re.I)
 _LEARN = re.compile(r"(struggl|don'?t understand|do(es)?\s+not\s+understand|can'?t\s+(parse|read|understand)|"
                     r"cannot\s+(parse|read|understand)|blind\s*spot|self.?check|doctor|"
                     r"what\s+(should|can)\s+i\s+teach|teach\s+(you|nodo)|"
@@ -266,6 +267,13 @@ def answer(question, nodes, edges, file_texts, out_dir, docs=None):
         ignore = set(scanner.DEFAULT_IGNORE_DIRS) | {Path(out_dir).name}
         hc = health.self_check(str(root), nodes, edges, file_texts, _lz.load_lessons(out_dir), ignore)
         return _hdr('self-check') + '\n' + hc['report']
+
+    # 0.7) "who calls X / what does X call" → function call graph (advanced/AST)
+    if _CALLS.search(question) and syms:
+        from . import callgraph as _cg
+        out = _cg.query_symbol_calls(_cg.build_call_graph(nodes, file_texts), syms[0])
+        if out:
+            return _hdr('call graph', syms[0]) + out
 
     # 1) "what breaks if I change <file>" → blast radius + change impact
     if files and _IMPACT.search(question):

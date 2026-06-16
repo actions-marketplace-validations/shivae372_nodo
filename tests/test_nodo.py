@@ -924,12 +924,13 @@ class TestMCPServer(unittest.TestCase):
         self.assertIn("overview", serve.dispatch(st, "nodo_ask", {"question": "what does this do"}).lower())
         self.assertIsInstance(serve.dispatch(st, "nodo_overview", {}), str)
         self.assertIn("Unknown tool", serve.dispatch(st, "bogus", {}))
-        self.assertEqual(len(serve.tool_specs()), 14)
+        self.assertEqual(len(serve.tool_specs()), 15)
         names = {s["name"] for s in serve.tool_specs()}
         self.assertIn("nodo_self_check", names)
         self.assertIn("nodo_teach", names)
         self.assertIn("nodo_fix_context", names)
         self.assertIn("nodo_changed", names)
+        self.assertIn("nodo_calls", names)
         self.assertIsInstance(serve.dispatch(st, "nodo_changed", {}), str)
         fx = serve.dispatch(st, "nodo_fix_context", {"file": "src/main.ts"})
         self.assertIn("<context", fx)        # emits the evidence prompt (main.ts has a console.log)
@@ -1214,6 +1215,27 @@ class TestRoadmapBatch(unittest.TestCase):
                if i["type"] == "Shared mutable export"]
         self.assertEqual([i["file"] for i in mut], ["src/cfg.js"])
         self.assertIn("config", mut[0]["detail"])     # the mutable export, not the const VERSION
+
+    def test_call_graph_resolves_function_edges(self):
+        from nodo import ast_index, callgraph
+        if not ast_index.available():
+            self.skipTest("tree-sitter not installed")
+        scanner._USE_AST = True
+        texts = {
+            "a.js": "export function helper(){ return 1; }\n",
+            "b.js": ("import {helper} from './a';\n"
+                     "export function main(){ return helper() + helper(); }\n"
+                     "function inner(){ return main(); }\n"),
+        }
+        nodes = [{"rel": r} for r in texts]
+        cg = callgraph.build_call_graph(nodes, texts)
+        self.assertTrue(cg["available"])
+        edges = {(e["from"], e["to"]) for e in cg["edges"]}
+        self.assertIn(("main", "helper"), edges)   # resolved call edge
+        self.assertIn(("inner", "main"), edges)
+        self.assertEqual(cg["callers"].get("helper"), ["main"])
+        # a call to an UNDEFINED function makes no edge (resolved-only → low FP)
+        self.assertFalse(any(t == "console" or t == "log" for _f, t in edges))
 
     def test_community_lessons_are_valid(self):
         from nodo import lessons

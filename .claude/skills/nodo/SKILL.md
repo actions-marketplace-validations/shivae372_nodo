@@ -18,20 +18,48 @@ on any project and any language — there is nothing project-specific to configu
 
 ## Steps
 
-### Step 1 — Run Nodo on the project root
+### Step 1 — Run Nodo on the project root (pick a mode)
 
-Run the launcher from the cloned Nodo repo, pointing it at the current project
-(`.`). Replace `/path/to/nodo` with wherever the repo lives on this machine:
+Nodo has two modes. Pick based on what the user wants; **default to vibe-coder**
+unless they ask for depth.
 
+**Vibe-coder mode (default — fast, zero-dependency, stay in flow):**
 ```bash
 python /path/to/nodo/nodo.py .
 ```
+Pure standard library, regex extraction, instant. Gives the dependency graph,
+high-signal issues, hubs, data flow, and the AI-context files. This is the right
+mode for day-to-day iteration and issue-spotting.
+
+**Advanced mode (`--deep` — the heaviest, most semantic scan):**
+```bash
+python /path/to/nodo/nodo.py . --deep
+```
+Turns on **tree-sitter AST** (symbol-level, ~19 languages), **multimodal**
+(docs/PDFs/images → the knowledge graph: concepts, topic communities, god-nodes),
+and a **function-level call graph** (`.nodo/nodo-callgraph.json` — who calls whom).
+Use it for big-picture/architectural understanding, onboarding to an unfamiliar
+repo, or when the user wants depth comparable to a semantic-graph tool. Heavier;
+best to install the extras first: `pip install tree-sitter tree-sitter-language-pack markitdown`.
+
+**Semantic vs syntactic — the division of labour.** Vibe mode is *syntactic*
+(structure: files, imports, definitions). Advanced mode adds the *semantic*
+scaffold (concepts, communities, call relationships) — but the deep semantic
+*reasoning* ("how does auth actually work?", "what's the real data flow?") is
+**yours**: you read Nodo's deterministic evidence (graph, knowledge topics, call
+graph) and reason over it. Nodo never calls an LLM; you are the intelligence on
+top, which is why answers stay grounded and private.
 
 The launcher works from any directory and needs no install. If the Nodo repo is
 not on this machine, tell the user to clone it first:
 `git clone https://github.com/shivae372/nodo`, then run the command above with
 the clone path. (If you happen to be inside the Nodo repo root, `python -m nodo .`
 also works.)
+
+After an advanced scan, you can trace functions directly:
+```bash
+python /path/to/nodo/nodo.py . --calls <function>   # who calls it + what it calls
+```
 
 ### Step 2 — Report
 
