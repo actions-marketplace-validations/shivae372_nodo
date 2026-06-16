@@ -329,6 +329,15 @@ html,body{height:100%;overflow:hidden;font-family:var(--sans);background:var(--b
 #graph-pane{flex:1;display:flex;overflow:hidden;position:relative}
 #graph{flex:1;width:100%;height:100%;background:var(--bg3)}
 .cpane{flex:1;overflow-y:auto;padding:28px 40px;display:none;background:var(--bg);font-size:13px;line-height:1.7;color:var(--text2)}
+/* Mobile: stack the sidebar above the graph so the viewer is usable on phones. */
+@media (max-width:760px){
+  #tab-body{flex-direction:column}
+  #sidebar{width:100%;max-height:42vh;flex-shrink:0;border-right:none;border-bottom:1px solid var(--border)}
+  #graph-pane{flex:1;min-height:48vh}
+  .cpane{padding:18px 15px}
+  #header{padding:0 12px}
+  #tabs{overflow-x:auto}
+}
 .brand{font-size:15px;font-weight:700;color:var(--accent);letter-spacing:-.3px}
 .hdr-sep{width:1px;height:20px;background:var(--border2);margin:0 10px}
 .hdr-title{font-size:13px;font-weight:500;color:var(--text2)}

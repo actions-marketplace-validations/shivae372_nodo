@@ -395,6 +395,13 @@ silently no-ops outside that platform (a browser/SSR build).
 **Orphaned exports** — exported symbols nothing imports; dead surface area.
 **Duplication drift** — identical blocks copied across files that can silently
 diverge when one copy is fixed and the others aren't.
+**Reassignment of an imported binding** *(data-flow)* — assigning to an ESM named
+import, which is read-only and throws a `TypeError` at runtime. Statement-anchored
+and skipped when the name is locally declared, destructured, or a parameter, so
+it's high-confidence with near-zero false positives.
+**Shared mutable export** *(ownership)* — `export let`/`var` that another module
+imports by name: shared mutable module state. An info-level hint to prefer `const`
++ an explicit setter so ownership stays clear.
 
 ### Signal over noise: corpus tiering
 
@@ -665,6 +672,38 @@ Indicative timings (regex, cold): ~63-file repo in ~0.7s, ~390-file repo in ~0.5
    / Markdown / text artifacts.
 
 No network calls. No telemetry. Your code never leaves your machine.
+
+---
+
+## Use in CI (GitHub Action)
+
+Nodo ships a zero-dependency GitHub Action that maps every pull request and posts
+a blast-radius + issues summary as a PR comment (created once, then updated in
+place). Add `.github/workflows/nodo.yml`:
+
+```yaml
+name: nodo
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.x' }
+      - uses: shivae372/nodo@v1
+        with:
+          path: '.'        # project root to scan
+          args: '--no-ast' # fast regex pass; drop for tree-sitter accuracy
+          comment: 'true'  # set 'false' to skip the PR comment
+```
+
+It runs the same engine as the CLI (pure Python standard library — no install
+step), so the comment is deterministic and the action never phones home. The
+repo dogfoods it on its own PRs via [`.github/workflows/nodo.yml`](.github/workflows/nodo.yml).
 
 ---
 

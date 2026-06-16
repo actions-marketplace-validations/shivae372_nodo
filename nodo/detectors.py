@@ -291,7 +291,9 @@ _CONFIDENCE = {
     'Call passes more args than defined': 'high',
     'Imported symbol not exported by source': 'high',
     'Platform-gated dead UI': 'high',
+    'Reassignment of an imported binding': 'high',
     'Possible hardcoded secret': 'high',
+    'Shared mutable export': 'low',
     # fuzzy / noisy heuristics → low
     'Duplicated block across files': 'low',
     'High decision complexity': 'low',

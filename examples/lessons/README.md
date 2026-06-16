@@ -22,6 +22,9 @@ freely — they're a starting point, not gospel.
 |---|---|---|
 | `zig.json` | Zig (`.zig`) | `fn` / `pub fn`, `const`, `@import("...")` |
 | `nim.json` | Nim (`.nim`) | `proc`/`func`/`template`/`macro`/`type`, `import` / `from..import` |
+| `gleam.json` | Gleam (`.gleam`) | `pub fn`/`fn`, `type`/`const`, `import` |
+| `odin.json` | Odin (`.odin`) | `NAME :: proc`, `NAME :: struct/enum/union`, `import "..."` |
+| `crystal.json` | Crystal (`.cr`) | `def`, `class`/`module`/`struct`/`enum`, `require "..."` |
 
 ## Contributing a lesson
 

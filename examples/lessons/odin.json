@@ -1,0 +1,17 @@
+{
+  "languages": {
+    "odin": {
+      "extensions": [".odin"],
+      "category": "lib",
+      "def_patterns": [
+        "(?m)^\\s*([A-Za-z_]\\w*)\\s*::\\s*proc",
+        "(?m)^\\s*([A-Za-z_]\\w*)\\s*::\\s*(?:struct|enum|union)"
+      ],
+      "import_patterns": [
+        "(?m)^\\s*import\\s+(?:\\w+\\s+)?\"([^\"]+)\""
+      ],
+      "note": "Odin: NAME :: proc and NAME :: struct/enum/union definitions; import \"...\". Teach with: nodo . --teach examples/lessons/odin.json",
+      "taught_by": "community"
+    }
+  }
+}

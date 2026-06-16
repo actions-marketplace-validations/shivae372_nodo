@@ -641,6 +641,73 @@ def orphaned_but_substantial(nodes, edges, file_texts, defs_by_file, soft_refs,
 
 
 # ── 7. Platform-gated dead UI ──────────────────────────────────────────────────
+# ── 7. Data-flow: reassignment of a read-only import ──────────────────────────
+_ASSIGN_OPS = (r'(?:=|\+=|-=|\*=|/=|%=|\*\*=|<<=|>>=|>>>=|&=|\|=|\^=|&&=|\|\|=|\?\?=)')
+
+
+def reassigned_imports(nodes, file_texts):
+    """Assignment to an ESM *named import* — those bindings are read-only, so
+    reassigning one throws a TypeError at runtime. Deliberately conservative
+    (statement-anchored assignment; skipped when the name is locally
+    re-declared, destructured, or used as a parameter) for near-zero FP."""
+    issues = []
+    for n in nodes:
+        rel = n['rel']
+        if not _is_js(rel):
+            continue
+        text = file_texts.get(rel, '')
+        if not text:
+            continue
+        names = {nm for (nm, _s, _l, is_type) in _extract_named_imports(rel, text)
+                 if not is_type and len(nm) >= 2}
+        for nm in sorted(names):
+            esc = re.escape(nm)
+            # shadowed locally (decl / destructure / param) → not the import; skip
+            if re.search(r'\b(?:const|let|var|function|class)\s+' + esc + r'\b', text):
+                continue
+            if re.search(r'\b(?:const|let|var)\s*\{[^}]*\b' + esc + r'\b', text):
+                continue
+            if re.search(r'[(,]\s*\{?\s*' + esc + r'\b\s*[,)}:=]', text):   # parameter-ish
+                continue
+            m = re.search(r'(?m)^\s*' + esc + r'\s*' + _ASSIGN_OPS + r'(?!=)', text)
+            if not m:
+                continue
+            ln = text[:m.start()].count('\n') + 1
+            issues.append(_mk('error', 'Data Flow', 'Reassignment of an imported binding', rel,
+                              f"`{nm}` is an imported (read-only) binding but is reassigned here "
+                              f"— this throws a TypeError at runtime. Assign to a local variable "
+                              f"instead.", ln))
+            break
+    return issues
+
+
+# ── 8. Ownership: shared mutable module state ─────────────────────────────────
+def shared_mutable_exports(nodes, file_texts):
+    """`export let|var NAME` whose NAME is imported by name elsewhere — shared
+    mutable module state, an ownership smell. Info-level hint, not an error."""
+    issues = []
+    imported = Counter()
+    for n in nodes:
+        for nm, _s, _l, _t in _extract_named_imports(n['rel'], file_texts.get(n['rel'], '')):
+            imported[nm] += 1
+    for n in nodes:
+        rel = n['rel']
+        if not _is_js(rel):
+            continue
+        text = file_texts.get(rel, '')
+        if not text:
+            continue
+        for m in re.finditer(r'export\s+(let|var)\s+([A-Za-z_$][\w$]*)', text):
+            nm = m.group(2)
+            if len(nm) >= 2 and imported.get(nm, 0) >= 1:
+                ln = text[:m.start()].count('\n') + 1
+                issues.append(_mk('info', 'Ownership', 'Shared mutable export', rel,
+                                  f"`{nm}` is exported as a mutable `{m.group(1)}` and imported "
+                                  f"elsewhere — shared mutable module state. Prefer `const` plus "
+                                  f"an explicit setter (or a store) so ownership stays clear.", ln))
+    return issues
+
+
 def platform_gated_dead_ui(nodes, file_texts):
     """A component whose handlers all call an injected platform bridge with
     optional chaining (e.g. `window.electronAPI?.x()`) and no fallback — it
@@ -737,4 +804,6 @@ def detect_cross_file(nodes, edges, file_texts, include_reference=False, soft_re
     issues += orphaned_but_substantial(scope, edges, file_texts, defs_by_file, soft_refs)
     issues += platform_gated_dead_ui(scope, file_texts)
     issues += duplication_drift(scope, file_texts)
+    issues += reassigned_imports(scope, file_texts)
+    issues += shared_mutable_exports(scope, file_texts)
     return issues
