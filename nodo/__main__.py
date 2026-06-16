@@ -306,8 +306,12 @@ def main(argv=None):
         print(hc['report'])
         if hc['teach_template']:
             import json as _json
-            print('\nStarter lesson (fill the regexes, save as lesson.json, then '
-                  '`nodo . --teach lesson.json`):')
+            induced = (hc.get('draft_stats') or {}).get('induced')
+            label = ('Auto-drafted lesson (regexes induced from your files — REVIEW, then save '
+                     'as lesson.json and `nodo . --teach lesson.json`):' if induced else
+                     'Starter lesson (fill the regexes, save as lesson.json, then '
+                     '`nodo . --teach lesson.json`):')
+            print('\n' + label)
             print(_json.dumps(hc['teach_template'], indent=2))
         return 0
 

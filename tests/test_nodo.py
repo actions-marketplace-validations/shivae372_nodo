@@ -1065,6 +1065,44 @@ class TestSelfHealing(unittest.TestCase):
         self.assertIn("Taught", res)
         self.assertIn("greet", serve.dispatch(st, "nodo_who_uses", {"symbol": "greet"}))
 
+    # ── auto-drafted lessons (deterministic regex induction) ──
+    def test_auto_drafted_lesson_works_verbatim(self):
+        from nodo import induce, lessons
+        samples = [self.TOY["src/main.toy"], self.TOY["src/util.toy"]]
+        lesson, stats = induce.draft_lesson(".toy", samples)
+        self.assertTrue(stats["induced"])
+        self.assertGreaterEqual(stats["defs"], 2)       # greet, main, hello
+        self.assertGreaterEqual(stats["imports"], 1)    # import "./util.toy"
+        self.assertTrue(lessons.validate_lesson(lesson)[0])   # teachable with no edits
+        # teach the DRAFT verbatim → the language becomes first-class
+        d = make_project(self.TOY)
+        out = Path(d) / ".nodo"
+        ok, errs, _ = lessons.merge_lessons(out, lesson)
+        self.assertTrue(ok, errs)
+        scanner.enable_lessons(lessons.load_lessons(out))
+        nodes, edges, texts = scanner.build_graph(d)
+        self.assertEqual({n["rel"] for n in nodes}, {"src/main.toy", "src/util.toy"})
+        self.assertEqual(len(edges), 1)
+        self.assertIn("greet", symbols.query_symbol(nodes, texts, "greet"))
+
+    def test_self_check_emits_induced_draft(self):
+        from nodo import lessons, health
+        d = make_project(self.TOY)
+        nodes, edges, texts = scanner.build_graph(d)    # blind (no lesson)
+        hc = health.self_check(d, nodes, edges, texts, lessons.empty(),
+                               set(scanner.DEFAULT_IGNORE_DIRS) | {".nodo"})
+        self.assertTrue(hc["draft_stats"]["induced"])
+        spec = hc["teach_template"]["languages"]["toy"]
+        self.assertTrue(any("[A-Za-z_]" in p for p in spec["def_patterns"]))   # real regex
+        self.assertFalse(any("<regex" in p for p in spec["def_patterns"]))     # not the stub
+
+    def test_induce_falls_back_to_stub_when_nothing_recognized(self):
+        from nodo import induce
+        lesson, stats = induce.draft_lesson(".dat", ["foo bar baz\n123 456 789\nqux\n"])
+        self.assertFalse(stats["induced"])
+        spec = lesson["languages"]["dat"]
+        self.assertTrue(any("<regex" in p for p in spec["def_patterns"]))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
