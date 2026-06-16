@@ -197,6 +197,13 @@ class _State:
             lines.append("Blast radius: nothing else imports the changed set.")
         return '\n'.join(lines)
 
+    def calls(self, symbol):
+        self._ready()
+        from . import callgraph as _cg
+        out = _cg.query_symbol_calls(_cg.build_call_graph(self.nodes, self.file_texts), symbol or '')
+        return out or (f"'{symbol}' isn't a calling/called function in the graph "
+                       f"(call graph needs tree-sitter; it's on by default when installed).")
+
     def teach(self, lesson):
         from . import lessons as _lz
         if isinstance(lesson, str):
@@ -265,6 +272,9 @@ def tool_specs():
         {"name": "nodo_changed", "description": "Files changed since the last scan and their "
          "combined transitive blast radius — what your recent edits put at risk.",
          "schema": opt()},
+        {"name": "nodo_calls", "description": "A function's call graph: who calls it and what "
+         "it calls (function-level, deterministic from the parse tree).",
+         "schema": S(symbol={"type": "string", "description": "function/method name"})},
     ]
 
 
@@ -301,6 +311,8 @@ def dispatch(state, name, args):
             return state.fix_context(a.get("file", ""))
         if name == "nodo_changed":
             return state.changed()
+        if name == "nodo_calls":
+            return state.calls(a.get("symbol", ""))
         return f"Unknown tool: {name}"
     except Exception as e:
         return f"nodo error handling {name}: {e}"

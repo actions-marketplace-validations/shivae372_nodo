@@ -94,6 +94,13 @@ def main(argv=None):
                              'repos; output is byte-identical to a single-threaded run.')
     parser.add_argument('--full', action='store_true',
                         help='Deepest scan: shortcut for --ast --multimodal.')
+    parser.add_argument('--deep', action='store_true',
+                        help='Advanced mode: the heaviest semantic scan — tree-sitter AST + '
+                             'multimodal + a function-level call graph + the knowledge graph. '
+                             'For deep understanding; the vibe-coder default is a fast regex scan.')
+    parser.add_argument('--calls', metavar='SYMBOL', default=None,
+                        help="Show a function's call graph: who calls it and what it calls. "
+                             'Needs tree-sitter (auto when installed, or run with --deep).')
     parser.add_argument('--benchmark', action='store_true',
                         help='Compare regex vs tree-sitter parsing (timing + edges) and exit.')
     parser.add_argument('--mcp', action='store_true',
@@ -116,7 +123,9 @@ def main(argv=None):
         print(f'error: {root} is not a directory', file=sys.stderr)
         return 2
 
-    if args.full:                 # --full == --ast --multimodal
+    if args.deep:                 # advanced mode = full scan + call graph
+        args.full = True
+    if args.full:                 # --full / --deep == --ast --multimodal
         args.ast = True
         args.multimodal = True
 
@@ -222,6 +231,28 @@ def main(argv=None):
         print(install_hook(root, launcher))
         print(install_agents(root, launcher))
         print(install_mcp(root, launcher))
+        return 0
+
+    if args.calls:
+        ignore_dirs = _ignore_dirs(cfg, args, out_dir, root)
+        nodes, edges, file_texts = build_graph(
+            root, ignore_dirs=ignore_dirs, respect_gitignore=not args.no_gitignore,
+            max_file_kb=cfg.get('max_file_kb', 512))
+        from . import callgraph as _cg
+        if not _cg.available():
+            print('Call graph needs tree-sitter parsing. Install it (pip install tree-sitter '
+                  'tree-sitter-language-pack) or run with --deep.', file=sys.stderr)
+            return 1
+        cg = _cg.build_call_graph(nodes, file_texts)
+        out = _cg.query_symbol_calls(cg, args.calls)
+        print(out if out else
+              f"'{args.calls}' isn't a calling/called function in the graph. "
+              f"Try --query {args.calls} for file/symbol references.")
+        try:
+            from . import querylog
+            querylog.record(out_dir, 'calls', args.calls)
+        except Exception:
+            pass
         return 0
 
     if args.query:
@@ -572,6 +603,22 @@ def _run_scan(root, out_dir, project_name, cfg, args, quiet=False):
         parser=('tree-sitter' if scanner._USE_AST else 'regex'),
         knowledge=know,
     )
+
+    # Advanced mode (--deep): build the function-level call graph and persist it as
+    # an extra artifact for Claude to reason over. AST-only; never affects the
+    # vibe-coder default path.
+    if getattr(args, 'deep', False):
+        from . import callgraph as _cg
+        cg = _cg.build_call_graph(nodes, file_texts)
+        if cg.get('available'):
+            import json as _json
+            (out_dir / 'nodo-callgraph.json').write_text(
+                _json.dumps(cg, indent=2), encoding='utf-8')
+            if not quiet:
+                hubs = _cg.top_hubs(cg, 3)
+                tail = ('; most-called: ' + ', '.join(f'{n}() ×{d}' for n, d in hubs)) if hubs else ''
+                print(f'  call graph: {len(cg["edges"])} edges over {cg["def_count"]} '
+                      f'functions → nodo-callgraph.json{tail}')
 
     if not quiet:
         dt = time.time() - t0

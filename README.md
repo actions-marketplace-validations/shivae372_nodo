@@ -60,6 +60,29 @@ back automatically. This is the blessed, highest-trust way to run it.
 
 ---
 
+## Two modes: vibe-coder (default) vs advanced
+
+Nodo runs at two depths — pick one:
+
+| | **Vibe-coder** (default) | **Advanced** (`--deep`) |
+|---|---|---|
+| Command | `python nodo.py .` | `python nodo.py . --deep` |
+| Speed / deps | Instant, **zero dependencies** (pure stdlib, regex) | Heavier; install `tree-sitter tree-sitter-language-pack markitdown` |
+| Graph | File + import dependency graph | + **tree-sitter symbols** (~19 langs) + a **function-level call graph** |
+| Semantics | Structure + issues + hubs + data flow | + **knowledge graph** (concepts, topic communities, god-nodes) + **multimodal** (docs/PDFs/images) |
+| Best for | Daily iteration, issue-spotting, blast radius — staying in flow | Onboarding, architecture review, big-picture understanding |
+
+**What "semantic" means here.** *Syntactic* is structure — files, imports,
+definitions (vibe mode). *Semantic* is meaning — concepts, how things relate,
+which functions call which (advanced mode). Nodo builds the semantic **scaffold
+deterministically** (no embeddings, no LLM, nothing leaves your machine) and lets
+**your AI assistant be the reasoning layer** on top. So you get semantic depth
+*grounded in real evidence* — never a hallucinated graph — plus everything vibe
+mode already gives you. Advanced mode writes an extra `.nodo/nodo-callgraph.json`
+and you can trace any function with `--calls <fn>`.
+
+---
+
 ## What you get
 
 Everything lands in `<project>/.nodo/`:
@@ -513,6 +536,8 @@ nodo [PATH] [options]
   --no-cache           disable the incremental parse + detection caches
   --jobs N             threads for the file-read pass (default 1; output identical)
   --full               deepest scan: shortcut for --ast --multimodal
+  --deep               advanced mode: --full + a function-level call graph
+  --calls SYMBOL       a function's call graph (who calls it + what it calls)
   --benchmark          compare regex vs tree-sitter (timing + edges), then exit
   --ignore DIR         extra directory to skip (repeatable)
   --no-gitignore       don't read .gitignore for ignore dirs
