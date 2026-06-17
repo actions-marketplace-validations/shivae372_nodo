@@ -1,0 +1,16 @@
+{
+  "name": "nodo",
+  "owner": { "name": "shivae372", "url": "https://github.com/shivae372" },
+  "metadata": {
+    "description": "nodo — map any codebase for your AI agent. Pairs with claude-bootstrap (which reads nodo's map at session start)."
+  },
+  "plugins": [
+    {
+      "name": "nodo",
+      "source": "./",
+      "description": "Deterministic codebase map: dependency + symbol + call graph, issue detection, and AI-agent context files. The /nodo skill regenerates the map; claude-bootstrap reads it automatically.",
+      "category": "developer-tools",
+      "tags": ["codebase-map", "architecture", "dependency-graph", "code-quality", "ai-context"]
+    }
+  ]
+}

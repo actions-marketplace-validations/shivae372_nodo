@@ -18,7 +18,7 @@ on any project and any language — there is nothing project-specific to configu
 
 ## Command map (which command, when) — your full toolbox
 
-Run the launcher as `python /path/to/nodo/nodo.py . <flag>`. Default to the cheap
+Run the launcher as `python /path/to/nodo/nodo.py . <flag>`. (Installed as a Claude Code plugin, the launcher is `${CLAUDE_PLUGIN_ROOT}/nodo.py`; cloned, use the clone path.) Default to the cheap
 options; reach for `--deep` only when depth is wanted.
 
 | Goal | Command |
