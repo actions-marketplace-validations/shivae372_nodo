@@ -11,9 +11,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      # In YOUR repo, replace `shivae372/nodo@v1` below. (Inside this repo you can
-      # use `./` to run the action from the working tree.)
-      - uses: shivae372/nodo@main
+      - uses: shivae372/nodo@v1.2
         with:
           path: '.'
           args: '--no-ast'
