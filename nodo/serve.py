@@ -6,10 +6,11 @@ call mid-session — `nodo_ask`, `nodo_blast_radius`, `nodo_who_uses`, `nodo_pat
 `nodo_explain`, `nodo_list_issues`, `nodo_hubs`, `nodo_topics`, `nodo_overview`,
 `nodo_refresh` — instead of only reading the static context files at session start.
 
-Opt-in and zero-dep-safe: needs `pip install mcp` (Python 3.10+); if it's absent
-nodo prints the install command and the core is completely unaffected. The tools
-are thin wrappers over the existing, tested logic (ask / query / symbols / docs) —
-no new analysis, read-only, local, no network.
+Zero-dependency by default: if the `mcp` SDK is installed it is used; otherwise nodo
+falls back to a built-in pure-stdlib JSON-RPC stdio server (identical tools), so
+`--mcp` works with no install at all. The tools are thin wrappers over the existing,
+tested logic (ask / query / symbols / docs) — no new analysis, read-only, local, no
+network.
 
     python -m nodo.serve [PATH]        # run the stdio server
     python /path/to/nodo/nodo.py --mcp [PATH]
@@ -409,8 +410,62 @@ def dispatch(state, name, args):
         return f"nodo error handling {name}: {e}"
 
 
+def _version():
+    try:
+        from . import __version__
+        return __version__
+    except Exception:
+        return "0"
+
+
+def serve_stdlib(root='.', out_dir=None):
+    """Built-in MCP stdio server — pure Python standard library, ZERO dependencies.
+    Speaks JSON-RPC 2.0 over stdin/stdout and exposes the same tools as the SDK path
+    (reuses tool_specs() + dispatch()). Used automatically when the `mcp` package is
+    absent, so nodo's MCP works out of the box — matching nodo's zero-dep ethos."""
+    import json
+    state = _State(root, out_dir)
+    protocol = "2024-11-05"
+
+    def send(obj):
+        sys.stdout.write(json.dumps(obj) + "\n")
+        sys.stdout.flush()
+
+    def tools():
+        return [{"name": s["name"], "description": s["description"], "inputSchema": s["schema"]}
+                for s in tool_specs()]
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except Exception:
+            continue
+        mid, method = msg.get("id"), msg.get("method", "")
+        if method == "initialize":
+            send({"jsonrpc": "2.0", "id": mid, "result": {
+                "protocolVersion": protocol, "capabilities": {"tools": {}},
+                "serverInfo": {"name": "nodo", "version": _version()}}})
+        elif method == "tools/list":
+            send({"jsonrpc": "2.0", "id": mid, "result": {"tools": tools()}})
+        elif method == "tools/call":
+            p = msg.get("params", {}) or {}
+            text = dispatch(state, p.get("name", ""), p.get("arguments", {}) or {})
+            send({"jsonrpc": "2.0", "id": mid,
+                  "result": {"content": [{"type": "text", "text": text}]}})
+        elif method.startswith("notifications/"):
+            pass  # notifications get no response
+        elif mid is not None:
+            send({"jsonrpc": "2.0", "id": mid,
+                  "error": {"code": -32601, "message": f"method not found: {method}"}})
+    return 0
+
+
 def serve(root='.', out_dir=None):
-    """Run the MCP stdio server. Returns an exit code. Needs the `mcp` package."""
+    """Run the MCP stdio server. Uses the `mcp` SDK if installed; otherwise falls back
+    to the built-in pure-stdlib server (serve_stdlib) — so `--mcp` needs no install."""
     try:
         import asyncio
         from mcp.server import Server
@@ -418,10 +473,9 @@ def serve(root='.', out_dir=None):
         from mcp.server.stdio import stdio_server
     except Exception:
         sys.stderr.write(
-            "nodo MCP server needs the 'mcp' package (Python 3.10+).\n"
-            "  Install:  pip install mcp        (or: pip install \"nodo-map[mcp]\")\n"
-            "The zero-dependency core and all CLI commands work without it.\n")
-        return 1
+            "nodo MCP: 'mcp' SDK not found — using the built-in zero-dependency stdio "
+            "server (run `pip install mcp` to use the official SDK instead).\n")
+        return serve_stdlib(root, out_dir)
 
     state = _State(root, out_dir)
     server = Server("nodo")
