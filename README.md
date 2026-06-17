@@ -1,6 +1,6 @@
 # Nodo
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](pyproject.toml)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](pyproject.toml)
 [![Claude Code skill](https://img.shields.io/badge/Claude_Code-%2Fnodo_skill-8A2BE2.svg)](.claude/skills/nodo/SKILL.md)
@@ -860,7 +860,7 @@ never buries signal on a large codebase.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Bundles [vis-network](https://github.com/visjs/vis-network)
+Apache-2.0 — see [LICENSE](LICENSE). Bundles [vis-network](https://github.com/visjs/vis-network)
 (MIT/Apache-2.0); see [NOTICE](NOTICE) for third-party attribution.
 
 Contributions welcome — new detectors and language resolvers especially.
