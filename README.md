@@ -775,7 +775,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.x' }
-      - uses: shivae372/nodo@v1.2.1
+      - uses: shivae372/nodo@v1.2.2
         with:
           path: '.'        # project root to scan
           args: '--no-ast' # fast regex pass; drop for tree-sitter accuracy
